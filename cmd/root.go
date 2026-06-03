@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/mightymoud/sidekick/cmd/certstatus"
 	"github.com/mightymoud/sidekick/cmd/config"
 	"github.com/mightymoud/sidekick/cmd/deploy"
 	"github.com/mightymoud/sidekick/cmd/initialize"
@@ -67,6 +68,7 @@ func init() {
 	rootCmd.AddCommand(deploy.DeployCmd)
 	rootCmd.AddCommand(launch.LaunchCmd)
 	rootCmd.AddCommand(config.ConfigCmd)
+	rootCmd.AddCommand(certstatus.CertStatusCmd)
 }
 
 func initConfig(cmd *cobra.Command) {
