@@ -381,5 +381,14 @@ var LaunchCmd = &cobra.Command{
 			fmt.Println("Error running program:", err)
 			os.Exit(1)
 		}
+
+		// Post-deploy TLS validation — runs synchronously after TUI completes
+		fmt.Println("\nValidating TLS certificate...")
+		result, certErr := utils.ValidateTLSCertWithRetry(appDomain)
+		if certErr != nil {
+			fmt.Printf("\n%s\n", fmt.Sprintf("⚠ Could not validate TLS certificate for %s: %s", appDomain, certErr))
+		} else {
+			fmt.Printf("\n%s\n", utils.FormatCertCheckOutput(result))
+		}
 	},
 }

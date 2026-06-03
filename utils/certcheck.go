@@ -119,3 +119,28 @@ func formatIssuer(cert *x509.Certificate) string {
 	}
 	return "Unknown"
 }
+
+// FormatCertCheckOutput returns a formatted string for CLI display.
+func FormatCertCheckOutput(result *CertCheckResult) string {
+	if result.Valid {
+		expDays := int(time.Until(result.ExpiresAt).Hours() / 24)
+		msg := fmt.Sprintf("✓ TLS certificate valid for %s\n  Issuer: %s\n  Expires: %s (%d days)",
+			result.Domain, result.Issuer, result.ExpiresAt.Format("2006-01-02"), expDays)
+		if result.IsExpiringSoon() {
+			msg += "\n  ⚠ Warning: Certificate expires in less than 7 days"
+		}
+		return msg
+	}
+
+	msg := fmt.Sprintf("✗ TLS certificate issue for %s\n  Certificate: %s",
+		result.Domain, result.Issuer)
+	if result.IsSelfSigned {
+		msg += " (self-signed)"
+	}
+	msg += "\n  Possible causes:"
+	msg += "\n    - DNS not yet propagated to server IP"
+	msg += "\n    - DNS API credentials invalid"
+	msg += "\n    - Domain not matching server"
+	msg += "\n  Run 'sidekick cert-status' for diagnostics"
+	return msg
+}

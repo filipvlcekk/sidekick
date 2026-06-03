@@ -282,5 +282,14 @@ It assumes that your VPS is already configured and that your application is read
 			fmt.Println("Error running program:", err)
 			os.Exit(1)
 		}
+
+		// Post-deploy TLS validation — runs synchronously after TUI completes
+		fmt.Println("\nValidating TLS certificate...")
+		result, certErr := utils.ValidateTLSCertWithRetry(appConfig.Url)
+		if certErr != nil {
+			fmt.Printf("\n%s\n", fmt.Sprintf("⚠ Could not validate TLS certificate for %s: %s", appConfig.Url, certErr))
+		} else {
+			fmt.Printf("\n%s\n", utils.FormatCertCheckOutput(result))
+		}
 	},
 }
