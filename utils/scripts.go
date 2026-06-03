@@ -195,14 +195,14 @@ services:
       - --providers.docker.exposedbydefault=false
       - --certificatesresolvers.default.acme.email=$EMAIL
       - --certificatesresolvers.default.acme.storage=/ssl-certs/acme.json
-      - --certificatesresolvers.default.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.default.acme.dnschallenge.provider=$DNS_PROVIDER
+      - --certificatesresolvers.default.acme.dnschallenge.resolvers=1.1.1.1:53,8.8.8.8:53
+    env_file:
+      - .env
     ports:
       - "80:80"
       - "443:443"
-      # The Web UI (enabled by --api.insecure=true)
-      # - "8080:8080"
     volumes:
-      # So that Traefik can listen to the Docker events
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/ssl/:/ssl-certs/
     networks:

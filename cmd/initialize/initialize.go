@@ -23,6 +23,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/docker/docker/pkg/namesgenerator"
 	"github.com/mightymoud/sidekick/render"
 	"github.com/mightymoud/sidekick/utils"
@@ -135,7 +136,7 @@ func stage5Docker(client *ssh.Client, p *tea.Program) error {
 	return nil
 }
 
-func stage6Traefik(client *ssh.Client, email string, p *tea.Program) error {
+func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider, envVars map[string]string, skipPrompts bool, p *tea.Program) error {
 	traefikSetup := false
 	outChan, _, err := utils.RunCommand(client, `[ -d "traefik" ] && echo "1" || echo "0"`)
 	if err == nil {
@@ -146,7 +147,7 @@ func stage6Traefik(client *ssh.Client, email string, p *tea.Program) error {
 	}
 
 	if !traefikSetup {
-		traefikStage := utils.GetTraefikStage(email)
+		traefikStage := utils.GetTraefikStage(email, provider, envVars)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
 			return err
 		}
@@ -192,6 +193,69 @@ var InitCmd = &cobra.Command{
 			}
 		}
 
+		// DNS provider selection
+		var selectedProvider utils.DNSProvider
+		dnsProviderFlag, _ := cmd.Flags().GetString("dns-provider")
+		dnsEnvFlags, _ := cmd.Flags().GetStringArray("dns-env")
+
+		if dnsProviderFlag != "" {
+			var err error
+			selectedProvider, err = utils.GetDNSProvider(dnsProviderFlag)
+			if err != nil {
+				log.Fatalf("Unknown DNS provider: %s. Use one of: cloudflare, route53, digitalocean, hetzner, godaddy", dnsProviderFlag)
+			}
+		} else {
+			// Interactive provider selection
+			providers := utils.GetAllDNSProviders()
+			options := make([]huh.Option[int], 0, len(providers))
+			for i, p := range providers {
+				options = append(options, huh.NewOption(fmt.Sprintf("%s — %s", p.Name, p.Description), i))
+			}
+
+			var selectedIndex int
+			form := huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[int]().
+						Title("Select your DNS provider for Let's Encrypt certificates").
+						Options(options...).
+						Value(&selectedIndex),
+				),
+			)
+			if err := form.Run(); err != nil {
+				log.Fatalf("DNS provider selection failed: %s", err)
+			}
+			selectedProvider = providers[selectedIndex]
+		}
+
+		// Collect DNS credentials
+		dnsEnvVars := make(map[string]string)
+		if len(dnsEnvFlags) > 0 {
+			// Parse from flags: --dns-env KEY=VALUE
+			for _, env := range dnsEnvFlags {
+				parts := strings.SplitN(env, "=", 2)
+				if len(parts) != 2 {
+					log.Fatalf("Invalid --dns-env format: %s (expected KEY=VALUE)", env)
+				}
+				dnsEnvVars[parts[0]] = parts[1]
+			}
+		} else {
+			// Interactive credential prompts
+			for _, envVar := range selectedProvider.EnvVars {
+				value := render.GenerateTextQuestion(fmt.Sprintf("Enter %s", envVar), "", "")
+				if value == "" {
+					log.Fatalf("%s is required for %s", envVar, selectedProvider.Name)
+				}
+				dnsEnvVars[envVar] = value
+			}
+		}
+
+		// Validate all required env vars are provided
+		for _, required := range selectedProvider.EnvVars {
+			if _, ok := dnsEnvVars[required]; !ok {
+				log.Fatalf("Missing required env var %s for provider %s", required, selectedProvider.Name)
+			}
+		}
+
 		sidekickServer, err := config.FindServer(name)
 		if err != nil {
 			sidekickServer = utils.SidekickServer{
@@ -211,6 +275,7 @@ var InitCmd = &cobra.Command{
 
 		sidekickServer.Address = server
 		sidekickServer.CertEmail = certEmail
+		sidekickServer.DNSProvider = selectedProvider.TraefikName
 
 		cmdStages := []render.Stage{
 			render.MakeStage("Setting up your local env", "Installed local requirements successfully", false),
@@ -274,7 +339,7 @@ var InitCmd = &cobra.Command{
 			time.Sleep(time.Millisecond * 100)
 			p.Send(render.NextStageMsg{})
 
-			if err := stage6Traefik(sidekickClient, certEmail, p); err != nil {
+			if err := stage6Traefik(sidekickClient, certEmail, selectedProvider, dnsEnvVars, skipPromptsFlag, p); err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Traefik setup failed: %s", err)})
 				return
 			}
@@ -304,4 +369,6 @@ func init() {
 	InitCmd.Flags().StringP("email", "e", "", "An email address to be used for SSL certs")
 	InitCmd.Flags().StringP("name", "n", "", "Set the name of your Server")
 	InitCmd.Flags().BoolP("yes", "y", false, "Skip all validation prompts")
+	InitCmd.Flags().String("dns-provider", "", "DNS provider for ACME DNS-01 challenge (cloudflare, route53, digitalocean, hetzner, godaddy)")
+	InitCmd.Flags().StringArray("dns-env", []string{}, "DNS provider environment variable (KEY=VALUE, can be repeated)")
 }

@@ -62,17 +62,30 @@ var DockerStage = CommandsStage{
 	},
 }
 
-func GetTraefikStage(email string) CommandsStage {
+func GetTraefikStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
+	// Build .env file content from credentials
+	envFileContent := ""
+	for key, value := range envVars {
+		envFileContent += fmt.Sprintf("%s=%s\n", key, value)
+	}
+
+	// Replace placeholders in compose template
+	compose := TraefikDockerComposeFile
+	compose = strings.Replace(compose, "$EMAIL", email, 1)
+	compose = strings.Replace(compose, "$DNS_PROVIDER", provider.TraefikName, 1)
+
 	return CommandsStage{
 		SpinnerSuccessMessage: "Successfully setup Traefik",
 		SpinnerFailMessage:    "Something went wrong setting up Traefik on your VPS",
 		Commands: []string{
-			"mkdir traefik",
-			fmt.Sprintf("echo '%s' > ./traefik/docker-compose.yml", strings.Replace(TraefikDockerComposeFile, "$EMAIL", email, 1)),
+			"mkdir -p traefik",
+			fmt.Sprintf("echo '%s' > ./traefik/.env", envFileContent),
+			"chmod 600 ./traefik/.env",
+			fmt.Sprintf("echo '%s' > ./traefik/docker-compose.yml", compose),
 			"mkdir -p ./traefik/ssl-certs/",
 			"touch ./traefik/ssl-certs/acme.json",
 			"chmod 600 ./traefik/ssl-certs/acme.json",
-			"sudo docker network create sidekick",
+			"sudo docker network create sidekick || true",
 			"cd traefik && sudo docker compose -p sidekick up -d",
 		},
 	}
