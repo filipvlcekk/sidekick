@@ -62,8 +62,9 @@ var DockerStage = CommandsStage{
 	},
 }
 
-// GetTraefikMigrationStage replaces existing Traefik config and restarts.
-func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
+// buildTraefikConfig builds the .env file content and composed docker-compose template.
+// Uses base64 encoding for safe shell transport of credentials.
+func buildTraefikConfig(email string, provider DNSProvider, envVars map[string]string) (envFileB64, composeB64 string) {
 	envFileContent := ""
 	for key, value := range envVars {
 		envFileContent += fmt.Sprintf("%s=%s\n", key, value)
@@ -72,40 +73,40 @@ func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[st
 	compose := TraefikDockerComposeFile
 	compose = strings.Replace(compose, "$EMAIL", email, 1)
 	compose = strings.Replace(compose, "$DNS_PROVIDER", provider.TraefikName, 1)
+
+	envFileB64 = base64.StdEncoding.EncodeToString([]byte(envFileContent))
+	composeB64 = base64.StdEncoding.EncodeToString([]byte(compose))
+	return
+}
+
+// GetTraefikMigrationStage replaces existing Traefik config and restarts.
+// Uses --force-recreate instead of down/up to minimize downtime.
+func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
+	envFileB64, composeB64 := buildTraefikConfig(email, provider, envVars)
 
 	return CommandsStage{
 		SpinnerSuccessMessage: "Successfully migrated Traefik to DNS-01",
 		SpinnerFailMessage:    "Something went wrong migrating Traefik",
 		Commands: []string{
-			fmt.Sprintf("echo '%s' > ./traefik/.env", envFileContent),
+			fmt.Sprintf("echo '%s' | base64 -d > ./traefik/.env", envFileB64),
 			"chmod 600 ./traefik/.env",
-			fmt.Sprintf("echo '%s' > ./traefik/docker-compose.yml", compose),
-			"cd traefik && sudo docker compose -p sidekick down",
-			"cd traefik && sudo docker compose -p sidekick up -d",
+			fmt.Sprintf("echo '%s' | base64 -d > ./traefik/docker-compose.yml", composeB64),
+			"cd traefik && sudo docker compose -p sidekick up -d --force-recreate",
 		},
 	}
 }
 
 func GetTraefikStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
-	// Build .env file content from credentials
-	envFileContent := ""
-	for key, value := range envVars {
-		envFileContent += fmt.Sprintf("%s=%s\n", key, value)
-	}
-
-	// Replace placeholders in compose template
-	compose := TraefikDockerComposeFile
-	compose = strings.Replace(compose, "$EMAIL", email, 1)
-	compose = strings.Replace(compose, "$DNS_PROVIDER", provider.TraefikName, 1)
+	envFileB64, composeB64 := buildTraefikConfig(email, provider, envVars)
 
 	return CommandsStage{
 		SpinnerSuccessMessage: "Successfully setup Traefik",
 		SpinnerFailMessage:    "Something went wrong setting up Traefik on your VPS",
 		Commands: []string{
 			"mkdir -p traefik",
-			fmt.Sprintf("echo '%s' > ./traefik/.env", envFileContent),
+			fmt.Sprintf("echo '%s' | base64 -d > ./traefik/.env", envFileB64),
 			"chmod 600 ./traefik/.env",
-			fmt.Sprintf("echo '%s' > ./traefik/docker-compose.yml", compose),
+			fmt.Sprintf("echo '%s' | base64 -d > ./traefik/docker-compose.yml", composeB64),
 			"mkdir -p ./traefik/ssl-certs/",
 			"touch ./traefik/ssl-certs/acme.json",
 			"chmod 600 ./traefik/ssl-certs/acme.json",

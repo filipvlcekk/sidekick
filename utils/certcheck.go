@@ -16,7 +16,6 @@ type CertCheckResult struct {
 	Issuer       string
 	ExpiresAt    time.Time
 	IsSelfSigned bool
-	Error        error
 }
 
 // IsExpiringSoon returns true if the certificate expires within 7 days.
@@ -60,7 +59,7 @@ func ValidateTLSCert(domain string) (*CertCheckResult, error) {
 }
 
 // ValidateTLSCertWithRetry attempts validation with exponential backoff.
-// Retries 3 times at 30s, 60s, 120s intervals.
+// Retries 3 times at 30s, 60s, 120s intervals. Prints progress to stdout.
 func ValidateTLSCertWithRetry(domain string) (*CertCheckResult, error) {
 	delays := []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second}
 
@@ -68,6 +67,7 @@ func ValidateTLSCertWithRetry(domain string) (*CertCheckResult, error) {
 		result, err := ValidateTLSCert(domain)
 		if err != nil {
 			if i < len(delays)-1 {
+				fmt.Printf("  Certificate not ready yet, retrying in %ds...\n", int(delay.Seconds()))
 				time.Sleep(delay)
 				continue
 			}
@@ -80,6 +80,7 @@ func ValidateTLSCertWithRetry(domain string) (*CertCheckResult, error) {
 
 		// Certificate exists but is self-signed — might still be provisioning
 		if i < len(delays)-1 {
+			fmt.Printf("  Certificate is self-signed, retrying in %ds...\n", int(delay.Seconds()))
 			time.Sleep(delay)
 			continue
 		}
