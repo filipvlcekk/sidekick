@@ -138,20 +138,74 @@ func stage5Docker(client *ssh.Client, p *tea.Program) error {
 
 func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider, envVars map[string]string, skipPrompts bool, p *tea.Program) error {
 	traefikSetup := false
+	existingHTTP01 := false
+	existingDNS01Provider := ""
+
 	outChan, _, err := utils.RunCommand(client, `[ -d "traefik" ] && echo "1" || echo "0"`)
 	if err == nil {
 		output := <-outChan
 		if output == "1" {
 			traefikSetup = true
+			// Check if existing setup uses HTTP-01 or DNS-01
+			outChan, _, err = utils.RunCommand(client, `grep -o "httpchallenge" traefik/docker-compose.yml 2>/dev/null || echo ""`)
+			if err == nil {
+				output = <-outChan
+				if strings.Contains(output, "httpchallenge") {
+					existingHTTP01 = true
+				}
+			}
+			// Check for existing DNS provider
+			outChan, _, err = utils.RunCommand(client, `grep -oP 'dnschallenge\.provider=\K\S+' traefik/docker-compose.yml 2>/dev/null || echo ""`)
+			if err == nil {
+				output = <-outChan
+				existingDNS01Provider = strings.TrimSpace(output)
+			}
 		}
 	}
 
 	if !traefikSetup {
+		// Fresh install
 		traefikStage := utils.GetTraefikStage(email, provider, envVars)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
 			return err
 		}
+		return nil
 	}
+
+	// Migration: HTTP-01 → DNS-01
+	if existingHTTP01 {
+		if !skipPrompts {
+			confirm := render.GenerateTextQuestion("Existing HTTP-01 setup detected. Migrate to DNS-01? (y/n)", "y", "")
+			if strings.ToLower(confirm) != "y" {
+				fmt.Println("Skipping Traefik migration")
+				return nil
+			}
+		}
+		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
+		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Migration: DNS-01 provider change
+	if existingDNS01Provider != "" && existingDNS01Provider != provider.TraefikName {
+		if !skipPrompts {
+			confirm := render.GenerateTextQuestion(
+				fmt.Sprintf("Current DNS provider is %s. Switch to %s? (y/n)", existingDNS01Provider, provider.TraefikName), "y", "")
+			if strings.ToLower(confirm) != "y" {
+				fmt.Println("Skipping DNS provider change")
+				return nil
+			}
+		}
+		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
+		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Already configured with same provider — skip
 	return nil
 }
 

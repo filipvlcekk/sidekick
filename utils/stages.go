@@ -62,6 +62,30 @@ var DockerStage = CommandsStage{
 	},
 }
 
+// GetTraefikMigrationStage replaces existing Traefik config and restarts.
+func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
+	envFileContent := ""
+	for key, value := range envVars {
+		envFileContent += fmt.Sprintf("%s=%s\n", key, value)
+	}
+
+	compose := TraefikDockerComposeFile
+	compose = strings.Replace(compose, "$EMAIL", email, 1)
+	compose = strings.Replace(compose, "$DNS_PROVIDER", provider.TraefikName, 1)
+
+	return CommandsStage{
+		SpinnerSuccessMessage: "Successfully migrated Traefik to DNS-01",
+		SpinnerFailMessage:    "Something went wrong migrating Traefik",
+		Commands: []string{
+			fmt.Sprintf("echo '%s' > ./traefik/.env", envFileContent),
+			"chmod 600 ./traefik/.env",
+			fmt.Sprintf("echo '%s' > ./traefik/docker-compose.yml", compose),
+			"cd traefik && sudo docker compose -p sidekick down",
+			"cd traefik && sudo docker compose -p sidekick up -d",
+		},
+	}
+}
+
 func GetTraefikStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
 	// Build .env file content from credentials
 	envFileContent := ""
