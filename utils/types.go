@@ -99,13 +99,14 @@ type SidekickConfig struct {
 }
 
 type SidekickServer struct {
-	Name       string `yaml:"name"`
-	Address    string `yaml:"serveraddress"`
-	Distro     string `yaml:"distro"`
-	PlatformId string `yaml:"platformid"`
-	CertEmail  string `yaml:"certemail"`
-	PublicKey  string `yaml:"publickey"`
-	SecretKey  string `yaml:"secretkey"`
+	Name        string `yaml:"name"`
+	Address     string `yaml:"serveraddress"`
+	Distro      string `yaml:"distro"`
+	PlatformId  string `yaml:"platformid"`
+	CertEmail   string `yaml:"certemail"`
+	DNSProvider string `yaml:"dnsprovider"`
+	PublicKey   string `yaml:"publickey"`
+	SecretKey   string `yaml:"secretkey"`
 }
 
 type SidekickContext struct {
