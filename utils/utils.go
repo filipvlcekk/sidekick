@@ -42,6 +42,24 @@ type CommandsStage struct {
 	SpinnerFailMessage    string
 }
 
+type sopsEncryptRunner func(publicKey, envFileName, outputFile string) error
+
+func runSopsEncrypt(publicKey, envFileName, outputFile string) error {
+	envCmd := exec.Command("sops",
+		"encrypt",
+		"--output-type", "dotenv",
+		"--age", publicKey,
+		envFileName,
+	)
+	outfile, err := os.Create(outputFile)
+	if err != nil {
+		return err
+	}
+	defer outfile.Close()
+	envCmd.Stdout = outfile
+	return envCmd.Run()
+}
+
 func RunCommand(client *ssh.Client, cmd string) (chan string, chan string, error) {
 	session, err := client.NewSession()
 	errChannel := make(chan string)
@@ -219,10 +237,15 @@ func LoadAppConfig() (SidekickAppConfig, error) {
 }
 
 func HandleEnvFile(envFileName string, dockerEnvProperty *[]string, envFileChecksum *string, publicKey string) error {
+	return handleEnvFile(envFileName, dockerEnvProperty, envFileChecksum, publicKey, runSopsEncrypt)
+}
+
+func handleEnvFile(envFileName string, dockerEnvProperty *[]string, envFileChecksum *string, publicKey string, encryptRunner sopsEncryptRunner) error {
 	envFile, envFileErr := os.Open(fmt.Sprintf("./%s", envFileName))
 	if envFileErr != nil {
 		return envFileErr
 	}
+	defer envFile.Close()
 	envMap, envParseErr := godotenv.Parse(envFile)
 	if envParseErr != nil {
 		return envParseErr
@@ -237,20 +260,8 @@ func HandleEnvFile(envFileName string, dockerEnvProperty *[]string, envFileCheck
 	// calculate and store the hash of env file to re-encrypt later on when changed
 	envFileContent, _ := godotenv.Marshal(envMap)
 	*envFileChecksum = fmt.Sprintf("%x", md5.Sum([]byte(envFileContent)))
-	envCmd := exec.Command("sops",
-		"encrypt",
-		"--output-type", "dotenv",
-		"--age", publicKey,
-		fmt.Sprintf("./%s", envFileName),
-	)
-	outfile, err := os.Create("encrypted.env")
-	if err != nil {
+	if err := encryptRunner(publicKey, fmt.Sprintf("./%s", envFileName), "encrypted.env"); err != nil {
 		return err
-	}
-	defer outfile.Close()
-	envCmd.Stdout = outfile
-	if envCmdErr := envCmd.Run(); envCmdErr != nil {
-		return envCmdErr
 	}
 	return nil
 }

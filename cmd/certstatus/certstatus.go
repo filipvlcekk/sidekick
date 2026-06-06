@@ -100,7 +100,7 @@ var CertStatusCmd = &cobra.Command{
 
 			// Check if domain has entry in acme.json
 			if acmeJSON != "{}" && acmeJSON != "" {
-				if strings.Contains(acmeJSON, domain) {
+				if acmeEntryExists(acmeJSON, domain) {
 					fmt.Printf("  ✓ ACME storage: certificate entry found\n")
 				} else {
 					fmt.Printf("  ✗ ACME storage: no certificate entry for this domain\n")
@@ -152,6 +152,10 @@ func filterLogsForDomain(logs, domain string) string {
 		return relevant[len(relevant)-1] // most recent error
 	}
 	return ""
+}
+
+func acmeEntryExists(acmeJSON, domain string) bool {
+	return strings.Contains(acmeJSON, domain)
 }
 
 func init() {

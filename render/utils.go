@@ -91,9 +91,9 @@ func RenderKeyValidation(resultLines []string, keyHash string, hostname string) 
 	}
 	prompt := pterm.DefaultInteractiveContinue
 
-	pterm.DefaultCenter.Printf(pterm.FgYellow.Sprintf("This is the ASCII art and fingerprint of your VPS's public key at %s", hostname))
-	pterm.DefaultCenter.Printf(pterm.FgYellow.Sprint("Please confirm you want to continue with the connection"))
-	pterm.DefaultCenter.Printf(pterm.FgYellow.Sprint("Sidekick will add this host/key pair to known_hosts"))
+	pterm.DefaultCenter.Println(pterm.FgYellow.Sprintf("This is the ASCII art and fingerprint of your VPS's public key at %s", hostname))
+	pterm.DefaultCenter.Println(pterm.FgYellow.Sprint("Please confirm you want to continue with the connection"))
+	pterm.DefaultCenter.Println(pterm.FgYellow.Sprint("Sidekick will add this host/key pair to known_hosts"))
 	pterm.Println()
 
 	prompt.DefaultText = "Would you like to proceed?"
