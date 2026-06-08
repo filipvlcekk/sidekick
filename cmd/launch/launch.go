@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strconv"
@@ -403,11 +404,12 @@ var LaunchCmd = &cobra.Command{
 
 		// Post-deploy TLS validation — runs synchronously after TUI completes
 		fmt.Println("\nValidating TLS certificate...")
-		result, certErr := utils.ValidateTLSCertWithRetry(appDomain)
+		result, certErr := utils.ValidateTLSCertWithRetryAtAddress(appDomain, net.JoinHostPort(sidekickServer.Address, "443"))
 		if certErr != nil {
 			fmt.Printf("\n%s\n", fmt.Sprintf("⚠ Could not validate TLS certificate for %s: %s", appDomain, certErr))
 		} else {
 			fmt.Printf("\n%s\n", utils.FormatCertCheckOutput(result))
 		}
+		fmt.Printf("  %s\n", utils.FormatDNSCheckOutput(utils.CheckPublicDNS(appDomain, sidekickServer.Address)))
 	},
 }

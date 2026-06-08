@@ -380,11 +380,12 @@ It assumes that your VPS is already configured and that your application is read
 
 		// Post-deploy TLS validation — runs synchronously after TUI completes
 		fmt.Println("\nValidating TLS certificate...")
-		result, certErr := utils.ValidateTLSCertWithRetry(appConfig.Url)
+		result, certErr := utils.ValidateTLSCertWithRetryAtAddress(appConfig.Url, net.JoinHostPort(sidekickServer.Address, "443"))
 		if certErr != nil {
 			fmt.Printf("\n%s\n", fmt.Sprintf("⚠ Could not validate TLS certificate for %s: %s", appConfig.Url, certErr))
 		} else {
 			fmt.Printf("\n%s\n", utils.FormatCertCheckOutput(result))
 		}
+		fmt.Printf("  %s\n", utils.FormatDNSCheckOutput(utils.CheckPublicDNS(appConfig.Url, sidekickServer.Address)))
 	},
 }
