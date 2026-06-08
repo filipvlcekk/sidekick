@@ -17,6 +17,7 @@ package utils
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
@@ -37,6 +38,11 @@ func (c *SidekickConfig) Save(path string) error {
 	if err != nil {
 		return err
 	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+
 	return os.WriteFile(path, data, os.ModePerm)
 }
 

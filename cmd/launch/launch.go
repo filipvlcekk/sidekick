@@ -38,6 +38,15 @@ import (
 
 var dockerClient *client.Client
 
+func serviceDirCreateCmd(appName string) string {
+	return fmt.Sprintf("mkdir -p %s", appName)
+}
+
+func shouldValidateTLS(model tea.Model) bool {
+	tuiModel, ok := model.(render.TuiModel)
+	return ok && tuiModel.AllDone
+}
+
 func getDockerClient() (*client.Client, error) {
 	if dockerClient != nil {
 		return dockerClient, nil
@@ -141,9 +150,9 @@ func stage3(appName string, p *tea.Program) error {
 }
 
 func stage4(sshClient *ssh.Client, appName string, p *tea.Program, server *utils.SidekickServer) error {
-	_, _, sessionErr := utils.RunCommand(sshClient, fmt.Sprintf("mkdir %s", appName))
+	_, _, sessionErr := utils.RunCommand(sshClient, serviceDirCreateCmd(appName))
 	if sessionErr != nil {
-		p.Send(render.ErrorMsg{ErrorStr: sessionErr.Error()})
+		return sessionErr
 	}
 	imgFileName := fmt.Sprintf("%s-latest.tar", appName)
 	remoteDist := fmt.Sprintf("%s@%s:./%s", "sidekick", server.Address, appName)
@@ -344,6 +353,7 @@ var LaunchCmd = &cobra.Command{
 			sshClient, err := stage1(&sidekickServer)
 			if err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: "Something went wrong logging in to your VPS"})
+				return
 			}
 
 			time.Sleep(time.Millisecond * 100)
@@ -351,6 +361,7 @@ var LaunchCmd = &cobra.Command{
 
 			if err = stage2(appName, p, &sidekickServer); err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Something went wrong building your docker image: %s", err)})
+				return
 			}
 
 			time.Sleep(time.Millisecond * 100)
@@ -358,6 +369,7 @@ var LaunchCmd = &cobra.Command{
 
 			if err = stage3(appName, p); err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Something went wrong saving docker image to a file: %s", err)})
+				return
 			}
 
 			time.Sleep(time.Millisecond * 100)
@@ -365,6 +377,7 @@ var LaunchCmd = &cobra.Command{
 
 			if err = stage4(sshClient, appName, p, &sidekickServer); err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Something went wrong moving the image to your VPS: %s", err)})
+				return
 			}
 
 			time.Sleep(time.Millisecond * 100)
@@ -372,14 +385,20 @@ var LaunchCmd = &cobra.Command{
 
 			if err = stage5(sshClient, appName, appPort, appDomain, hasEnvFile, envFileName, envFileChecksum, p, &sidekickServer); err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Something went wrong booting up your app: %s", err)})
+				return
 			}
 
 			p.Send(render.AllDoneMsg{Message: "🚀 Deployed successfully in " + time.Since(start).Round(time.Second).String() + ".\n" + "😎 View your app at https://" + appDomain})
 		}()
 
-		if _, err := p.Run(); err != nil {
+		model, err := p.Run()
+		if err != nil {
 			fmt.Println("Error running program:", err)
 			os.Exit(1)
+		}
+
+		if !shouldValidateTLS(model) {
+			return
 		}
 
 		// Post-deploy TLS validation — runs synchronously after TUI completes
