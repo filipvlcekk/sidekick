@@ -28,6 +28,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/log"
 	teaLog "github.com/charmbracelet/log"
+	"github.com/joho/godotenv"
 	"github.com/mightymoud/sidekick/render"
 	"github.com/mightymoud/sidekick/utils"
 	"github.com/pterm/pterm"
@@ -88,6 +89,77 @@ func prelude(config *utils.SidekickConfig) (utils.SidekickAppConfig, utils.Sidek
 func stage1Login(server *utils.SidekickServer) (*ssh.Client, error) {
 	sshClient, err := utils.Login(server.Address, "sidekick")
 	return sshClient, err
+}
+
+func shouldValidateTLS(model tea.Model) bool {
+	tuiModel, ok := model.(render.TuiModel)
+	return ok && tuiModel.AllDone
+}
+
+func loadDockerEnvProperty(appConfig utils.SidekickAppConfig) ([]string, error) {
+	if appConfig.Env.File == "" {
+		return nil, nil
+	}
+
+	envFile, err := os.Open(fmt.Sprintf("./%s", appConfig.Env.File))
+	if err != nil {
+		return nil, err
+	}
+	defer envFile.Close()
+
+	envMap, err := godotenv.Parse(envFile)
+	if err != nil {
+		return nil, err
+	}
+
+	dockerEnvProperty := make([]string, 0, len(envMap))
+	for key := range envMap {
+		if strings.HasPrefix(key, "_") {
+			continue
+		}
+		dockerEnvProperty = append(dockerEnvProperty, fmt.Sprintf("%s=${%s}", key, key))
+	}
+
+	return dockerEnvProperty, nil
+}
+
+func buildDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty []string) utils.DockerComposeFile {
+	newService := utils.DockerService{
+		Image:   appConfig.Name,
+		Restart: "unless-stopped",
+		Labels: []string{
+			"traefik.enable=true",
+			fmt.Sprintf("traefik.http.routers.%s.rule=Host(`%s`)", appConfig.Name, appConfig.Url),
+			fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", appConfig.Name, appConfig.Port),
+			fmt.Sprintf("traefik.http.routers.%s.tls=true", appConfig.Name),
+			fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=default", appConfig.Name),
+			"traefik.docker.network=sidekick",
+		},
+		Environment: dockerEnvProperty,
+		Networks: []string{
+			"sidekick",
+		},
+	}
+
+	return utils.DockerComposeFile{
+		Services: map[string]utils.DockerService{
+			appConfig.Name: newService,
+		},
+		Networks: map[string]utils.DockerNetwork{
+			"sidekick": {
+				External: true,
+			},
+		},
+	}
+}
+
+func writeDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty []string) error {
+	dockerComposeFile, err := yaml.Marshal(buildDockerComposeFile(appConfig, dockerEnvProperty))
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile("docker-compose.yaml", dockerComposeFile, 0644)
 }
 
 func stage2EnvFile(appConfig utils.SidekickAppConfig, p *tea.Program, server *utils.SidekickServer) (bool, string, error) {
@@ -156,6 +228,14 @@ func stage5MoveDockerImage(appConfig utils.SidekickAppConfig, p *tea.Program, se
 	if imgMovCmdErr := imgMoveCmd.Run(); imgMovCmdErr != nil {
 		return fmt.Errorf("failed to move Docker image to server: %w", imgMovCmdErr)
 	}
+
+	composeSyncCmd := exec.Command("rsync", "-v", "docker-compose.yaml", remoteDist)
+	composeSyncCmdErrPipe, _ := composeSyncCmd.StderrPipe()
+	go render.SendLogsToTUI(composeSyncCmdErrPipe, p)
+	if composeSyncErr := composeSyncCmd.Run(); composeSyncErr != nil {
+		return fmt.Errorf("failed to sync docker compose file to server: %w", composeSyncErr)
+	}
+
 	os.Remove(imgFileName)
 	return nil
 }
@@ -216,6 +296,16 @@ It assumes that your VPS is already configured and that your application is read
 			render.GetLogger(log.Options{Prefix: "Sidekick Config"}).Fatalf("%s", err)
 		}
 		appConfig, sidekickServer := prelude(config)
+
+		dockerEnvProperty, err := loadDockerEnvProperty(appConfig)
+		if err != nil {
+			render.GetLogger(log.Options{Prefix: "Env File"}).Fatalf("Failed to load env file: %s", err)
+		}
+
+		if err := writeDockerComposeFile(appConfig, dockerEnvProperty); err != nil {
+			render.GetLogger(log.Options{Prefix: "Docker Compose"}).Fatalf("Failed to render docker compose file: %s", err)
+		}
+		defer os.Remove("docker-compose.yaml")
 
 		cmdStages := []render.Stage{
 			render.MakeStage("Validating connection with VPS", "VPS is reachable", false),
@@ -278,9 +368,14 @@ It assumes that your VPS is already configured and that your application is read
 			p.Send(render.AllDoneMsg{Message: "🚀 Deployed successfully in " + time.Since(start).Round(time.Second).String() + ".\n" + "😎 View your app at https://" + appConfig.Url})
 		}()
 
-		if _, err := p.Run(); err != nil {
+		model, err := p.Run()
+		if err != nil {
 			fmt.Println("Error running program:", err)
 			os.Exit(1)
+		}
+
+		if !shouldValidateTLS(model) {
+			return
 		}
 
 		// Post-deploy TLS validation — runs synchronously after TUI completes
