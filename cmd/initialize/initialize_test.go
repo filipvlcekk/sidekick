@@ -72,7 +72,7 @@ func TestWildcardInitGuidance(t *testing.T) {
 func TestDefaultInteractiveCertificateMode(t *testing.T) {
 	assert.Equal(t, utils.CertificateModePerHost, defaultInteractiveCertificateMode(""))
 	assert.Equal(t, utils.CertificateModePerHost, defaultInteractiveCertificateMode(utils.CertificateModePerHost))
-	assert.Equal(t, utils.CertificateModePerHost, defaultInteractiveCertificateMode(utils.CertificateModeWildcard))
+	assert.Equal(t, utils.CertificateModeWildcard, defaultInteractiveCertificateMode(utils.CertificateModeWildcard))
 }
 
 func TestShouldRewriteTraefikForCertificateMode(t *testing.T) {
@@ -137,6 +137,35 @@ func TestShouldRewriteTraefikForCertificateMode(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestShouldRewriteTraefikForRequestedSettings(t *testing.T) {
+	t.Run("returns true for email-only traefik-backed change", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			CertEmail:       "old@example.com",
+			DNSProvider:     "cloudflare",
+			CertificateMode: utils.CertificateModePerHost,
+		}
+		requested := existing
+		requested.CertEmail = "new@example.com"
+
+		assert.True(t, shouldRewriteTraefikForRequestedSettings(existing, requested))
+	})
+
+	t.Run("returns false when traefik-backed fields are unchanged", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			CertEmail:       "old@example.com",
+			DNSProvider:     "cloudflare",
+			CertificateMode: utils.CertificateModeWildcard,
+			WildcardDomain:  "saola.cz",
+		}
+		requested := existing
+		requested.Address = "203.0.113.11"
+
+		assert.False(t, shouldRewriteTraefikForRequestedSettings(existing, requested))
+	})
 }
 
 func TestServerConfigForPersistence(t *testing.T) {

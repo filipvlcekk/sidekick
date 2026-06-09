@@ -209,18 +209,11 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 		return true, nil
 	}
 
-	if shouldRewriteTraefikForCertificateMode(
-		existingServer.CertificateMode,
-		requestedServer.CertificateMode,
-		existingServer.WildcardDomain,
-		requestedServer.WildcardDomain,
-	) {
+	if shouldRewriteTraefikForRequestedSettings(existingServer, requestedServer) {
 		if !skipPrompts {
 			confirm := render.GenerateTextQuestion(
 				fmt.Sprintf(
-					"Current certification mode is %s. Rewrite Traefik for %s mode? (y/n)",
-					utils.NormalizeCertificateMode(existingServer.CertificateMode),
-					utils.NormalizeCertificateMode(requestedServer.CertificateMode),
+					"Current Traefik-backed settings differ from the requested configuration. Rewrite Traefik now? (y/n)",
 				),
 				"y",
 				"",
@@ -302,8 +295,8 @@ func wildcardInitGuidance(domain string) string {
 	)
 }
 
-func defaultInteractiveCertificateMode(_ string) string {
-	return utils.CertificateModePerHost
+func defaultInteractiveCertificateMode(currentMode string) string {
+	return utils.NormalizeCertificateMode(currentMode)
 }
 
 func serverConfigForPersistence(existingServer, requestedServer utils.SidekickServer, persistRequestedCertificateSettings bool) utils.SidekickServer {
@@ -343,6 +336,10 @@ func shouldRewriteTraefikForCertificateMode(existingMode, requestedMode, existin
 	}
 
 	return false
+}
+
+func shouldRewriteTraefikForRequestedSettings(existingServer, requestedServer utils.SidekickServer) bool {
+	return hasTraefikCoupledConfigChange(existingServer, requestedServer)
 }
 
 var InitCmd = &cobra.Command{
