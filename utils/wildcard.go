@@ -2,6 +2,7 @@ package utils
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -10,16 +11,29 @@ const (
 	CertificateModeWildcard = "wildcard"
 )
 
+var dnsLabelPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+
 // NormalizeCertificateMode treats an empty mode as the legacy per-host default.
 func NormalizeCertificateMode(mode string) string {
-	switch strings.TrimSpace(mode) {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "", CertificateModePerHost:
 		return CertificateModePerHost
 	case CertificateModeWildcard:
 		return CertificateModeWildcard
 	default:
-		return strings.TrimSpace(mode)
+		return strings.ToLower(strings.TrimSpace(mode))
 	}
+}
+
+func NormalizeSidekickConfig(config *SidekickConfig) {
+	for i := range config.Servers {
+		NormalizeSidekickServer(&config.Servers[i])
+	}
+}
+
+func NormalizeSidekickServer(server *SidekickServer) {
+	server.CertificateMode = NormalizeCertificateMode(server.CertificateMode)
+	server.WildcardDomain = normalizeWildcardName(server.WildcardDomain)
 }
 
 func ValidateCertificateModeConfig(mode, wildcardDomain string) error {
@@ -35,6 +49,9 @@ func ValidateCertificateModeConfig(mode, wildcardDomain string) error {
 	case CertificateModeWildcard:
 		if normalizedDomain == "" {
 			return fmt.Errorf("wildcard domain is required in %q mode", CertificateModeWildcard)
+		}
+		if !IsValidWildcardDomain(normalizedDomain) {
+			return fmt.Errorf("wildcard domain %q must be a DNS zone like example.com", wildcardDomain)
 		}
 		return nil
 	default:
@@ -52,6 +69,21 @@ func IsHostnameWithinWildcardDomain(hostname, wildcardDomain string) bool {
 
 	for i := range wildcardLabels {
 		if hostnameLabels[i+1] != wildcardLabels[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func IsValidWildcardDomain(domain string) bool {
+	labels := splitDomainLabels(domain)
+	if len(labels) < 2 {
+		return false
+	}
+
+	for _, label := range labels {
+		if !dnsLabelPattern.MatchString(label) {
 			return false
 		}
 	}

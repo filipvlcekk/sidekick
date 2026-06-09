@@ -81,9 +81,24 @@ current-context: scvd
 	err := yaml.Unmarshal([]byte(configYAML), &config)
 	assert.NoError(t, err)
 
+	NormalizeSidekickConfig(&config)
+
 	if assert.Len(t, config.Servers, 1) {
 		server := config.Servers[0]
-		assert.Equal(t, CertificateModePerHost, NormalizeCertificateMode(server.CertificateMode))
+		assert.Equal(t, CertificateModePerHost, server.CertificateMode)
 		assert.Empty(t, server.WildcardDomain)
 	}
+}
+
+func TestNormalizeSidekickServer(t *testing.T) {
+	server := SidekickServer{
+		Name:            "scvd",
+		CertificateMode: "Wildcard",
+		WildcardDomain:  "Saola.CZ.",
+	}
+
+	NormalizeSidekickServer(&server)
+
+	assert.Equal(t, CertificateModeWildcard, server.CertificateMode)
+	assert.Equal(t, "saola.cz", server.WildcardDomain)
 }
