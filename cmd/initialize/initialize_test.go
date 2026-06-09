@@ -1,0 +1,116 @@
+package initialize
+
+import (
+	"testing"
+
+	"github.com/mightymoud/sidekick/utils"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestApplyCertificateSettings(t *testing.T) {
+	t.Run("sets wildcard mode and domain", func(t *testing.T) {
+		server := utils.SidekickServer{Name: "scvd"}
+
+		got, err := applyCertificateSettings(server, utils.CertificateModeWildcard, "Saola.CZ.")
+
+		assert.NoError(t, err)
+		assert.Equal(t, utils.CertificateModeWildcard, got.CertificateMode)
+		assert.Equal(t, "saola.cz", got.WildcardDomain)
+	})
+
+	t.Run("defaults empty mode to per-host and clears stale wildcard domain", func(t *testing.T) {
+		server := utils.SidekickServer{
+			Name:            "scvd",
+			CertificateMode: utils.CertificateModeWildcard,
+			WildcardDomain:  "saola.cz",
+		}
+
+		got, err := applyCertificateSettings(server, "", "")
+
+		assert.NoError(t, err)
+		assert.Equal(t, utils.CertificateModePerHost, got.CertificateMode)
+		assert.Empty(t, got.WildcardDomain)
+	})
+
+	t.Run("validates wildcard domain with shared helper", func(t *testing.T) {
+		server := utils.SidekickServer{Name: "scvd"}
+
+		_, err := applyCertificateSettings(server, utils.CertificateModeWildcard, "*.saola.cz")
+
+		assert.ErrorContains(t, err, `wildcard domain "*.saola.cz" must be a DNS zone like example.com`)
+	})
+}
+
+func TestWildcardInitGuidance(t *testing.T) {
+	msg := wildcardInitGuidance("saola.cz")
+
+	assert.Contains(t, msg, "optional but recommended")
+	assert.Contains(t, msg, "*.example.com")
+	assert.Contains(t, msg, "*.saola.cz")
+	assert.Contains(t, msg, "per-app DNS records")
+	assert.Contains(t, msg, "wildcard DNS record")
+}
+
+func TestShouldRewriteTraefikForCertificateMode(t *testing.T) {
+	tests := []struct {
+		name                    string
+		existingMode            string
+		requestedMode           string
+		existingWildcardDomain  string
+		requestedWildcardDomain string
+		expected                bool
+	}{
+		{
+			name:          "legacy empty mode matches per-host default",
+			existingMode:  "",
+			requestedMode: "",
+			expected:      false,
+		},
+		{
+			name:                    "per-host to wildcard rewrites",
+			existingMode:            utils.CertificateModePerHost,
+			requestedMode:           utils.CertificateModeWildcard,
+			requestedWildcardDomain: "saola.cz",
+			expected:                true,
+		},
+		{
+			name:                   "wildcard to per-host rewrites",
+			existingMode:           utils.CertificateModeWildcard,
+			existingWildcardDomain: "saola.cz",
+			requestedMode:          utils.CertificateModePerHost,
+			expected:               true,
+		},
+		{
+			name:                    "wildcard domain change rewrites",
+			existingMode:            utils.CertificateModeWildcard,
+			existingWildcardDomain:  "saola.cz",
+			requestedMode:           utils.CertificateModeWildcard,
+			requestedWildcardDomain: "apps.saola.cz",
+			expected:                true,
+		},
+		{
+			name:                    "matching wildcard settings do not rewrite",
+			existingMode:            utils.CertificateModeWildcard,
+			existingWildcardDomain:  "Saola.CZ.",
+			requestedMode:           utils.CertificateModeWildcard,
+			requestedWildcardDomain: "saola.cz",
+			expected:                false,
+		},
+		{
+			name:          "matching per-host settings do not rewrite",
+			existingMode:  utils.CertificateModePerHost,
+			requestedMode: utils.CertificateModePerHost,
+			expected:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(
+				t,
+				tt.expected,
+				shouldRewriteTraefikForCertificateMode(tt.existingMode, tt.requestedMode, tt.existingWildcardDomain, tt.requestedWildcardDomain),
+			)
+		})
+	}
+}

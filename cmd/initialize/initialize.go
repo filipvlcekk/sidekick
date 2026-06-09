@@ -136,7 +136,7 @@ func stage5Docker(client *ssh.Client, p *tea.Program) error {
 	return nil
 }
 
-func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider, envVars map[string]string, skipPrompts bool, p *tea.Program) error {
+func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider, envVars map[string]string, existingServer, requestedServer utils.SidekickServer, skipPrompts bool, p *tea.Program) error {
 	traefikSetup := false
 	existingHTTP01 := false
 	existingDNS01Provider := ""
@@ -205,8 +205,91 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 		return nil
 	}
 
+	if shouldRewriteTraefikForCertificateMode(
+		existingServer.CertificateMode,
+		requestedServer.CertificateMode,
+		existingServer.WildcardDomain,
+		requestedServer.WildcardDomain,
+	) {
+		if !skipPrompts {
+			confirm := render.GenerateTextQuestion(
+				fmt.Sprintf(
+					"Current certification mode is %s. Rewrite Traefik for %s mode? (y/n)",
+					utils.NormalizeCertificateMode(existingServer.CertificateMode),
+					utils.NormalizeCertificateMode(requestedServer.CertificateMode),
+				),
+				"y",
+				"",
+			)
+			if strings.ToLower(confirm) != "y" {
+				fmt.Println("Skipping certification mode migration")
+				return nil
+			}
+		}
+		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
+		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
+			return err
+		}
+		return nil
+	}
+
 	// Already configured with same provider — skip
 	return nil
+}
+
+func applyCertificateSettings(server utils.SidekickServer, mode, wildcardDomain string) (utils.SidekickServer, error) {
+	server.CertificateMode = mode
+	server.WildcardDomain = wildcardDomain
+	utils.NormalizeSidekickServer(&server)
+
+	if err := utils.ValidateCertificateModeConfig(server.CertificateMode, server.WildcardDomain); err != nil {
+		return server, err
+	}
+
+	if server.CertificateMode == utils.CertificateModePerHost {
+		server.WildcardDomain = ""
+	}
+
+	return server, nil
+}
+
+func wildcardInitGuidance(domain string) string {
+	normalizedDomain := domain
+	serverPattern := "*.example.com"
+	if normalizedDomain != "" {
+		serverPattern = "*." + normalizedDomain
+	}
+
+	return fmt.Sprintf(
+		"Wildcard DNS is optional but recommended.\nYou can keep using per-app DNS records for each hostname, or create one wildcard DNS record such as %s (for example %s) that points to this server.",
+		serverPattern,
+		"*.example.com",
+	)
+}
+
+func shouldRewriteTraefikForCertificateMode(existingMode, requestedMode, existingWildcardDomain, requestedWildcardDomain string) bool {
+	existingServer := utils.SidekickServer{
+		CertificateMode: existingMode,
+		WildcardDomain:  existingWildcardDomain,
+	}
+	requestedServer := utils.SidekickServer{
+		CertificateMode: requestedMode,
+		WildcardDomain:  requestedWildcardDomain,
+	}
+
+	utils.NormalizeSidekickServer(&existingServer)
+	utils.NormalizeSidekickServer(&requestedServer)
+
+	if existingServer.CertificateMode != requestedServer.CertificateMode {
+		return true
+	}
+
+	if requestedServer.CertificateMode == utils.CertificateModeWildcard &&
+		existingServer.WildcardDomain != requestedServer.WildcardDomain {
+		return true
+	}
+
+	return false
 }
 
 var InitCmd = &cobra.Command{
@@ -227,6 +310,8 @@ var InitCmd = &cobra.Command{
 		server, _ := cmd.Flags().GetString("server")
 		certEmail, _ := cmd.Flags().GetString("email")
 		name, _ := cmd.Flags().GetString("name")
+		certificateModeFlag, _ := cmd.Flags().GetString("certificate-mode")
+		wildcardDomainFlag, _ := cmd.Flags().GetString("wildcard-domain")
 
 		if name == "" {
 			randomName := namesgenerator.GetRandomName(0)
@@ -318,6 +403,7 @@ var InitCmd = &cobra.Command{
 				CertEmail: certEmail,
 			}
 		}
+		existingServerConfig := sidekickServer
 
 		if sidekickServer.Name == name && sidekickServer.Address != server && sidekickServer.PublicKey != "" && !skipPromptsFlag {
 			confirm := render.GenerateTextQuestion(fmt.Sprintf("The server '%s' was previously setup with Sidekick using a different address. Would you like to overwrite the settings? (y/n)", sidekickServer.Name), "n", "")
@@ -330,6 +416,40 @@ var InitCmd = &cobra.Command{
 		sidekickServer.Address = server
 		sidekickServer.CertEmail = certEmail
 		sidekickServer.DNSProvider = selectedProvider.TraefikName
+
+		selectedCertificateMode := utils.NormalizeCertificateMode(certificateModeFlag)
+		if certificateModeFlag == "" {
+			selectedCertificateMode = utils.NormalizeCertificateMode(sidekickServer.CertificateMode)
+			options := []huh.Option[string]{
+				huh.NewOption("Per-host", utils.CertificateModePerHost),
+				huh.NewOption("Wildcard", utils.CertificateModeWildcard),
+			}
+
+			form := huh.NewForm(
+				huh.NewGroup(
+					huh.NewSelect[string]().
+						Title("Select your certification mode").
+						Options(options...).
+						Value(&selectedCertificateMode),
+				),
+			)
+			if err := form.Run(); err != nil {
+				log.Fatalf("Certification mode selection failed: %s", err)
+			}
+		}
+
+		selectedWildcardDomain := wildcardDomainFlag
+		if selectedCertificateMode == utils.CertificateModeWildcard && selectedWildcardDomain == "" {
+			selectedWildcardDomain = render.GenerateTextQuestion("Enter the wildcard domain for this server", sidekickServer.WildcardDomain, "")
+		}
+
+		sidekickServer, err = applyCertificateSettings(sidekickServer, selectedCertificateMode, selectedWildcardDomain)
+		if err != nil {
+			log.Fatalf("Invalid certification mode settings: %s", err)
+		}
+		if sidekickServer.CertificateMode == utils.CertificateModeWildcard {
+			fmt.Println(wildcardInitGuidance(sidekickServer.WildcardDomain))
+		}
 
 		cmdStages := []render.Stage{
 			render.MakeStage("Setting up your local env", "Installed local requirements successfully", false),
@@ -393,7 +513,7 @@ var InitCmd = &cobra.Command{
 			time.Sleep(time.Millisecond * 100)
 			p.Send(render.NextStageMsg{})
 
-			if err := stage6Traefik(sidekickClient, certEmail, selectedProvider, dnsEnvVars, skipPromptsFlag, p); err != nil {
+			if err := stage6Traefik(sidekickClient, certEmail, selectedProvider, dnsEnvVars, existingServerConfig, sidekickServer, skipPromptsFlag, p); err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Traefik setup failed: %s", err)})
 				return
 			}
@@ -425,4 +545,6 @@ func init() {
 	InitCmd.Flags().BoolP("yes", "y", false, "Skip all validation prompts")
 	InitCmd.Flags().String("dns-provider", "", "DNS provider for ACME DNS-01 challenge (cloudflare, route53, digitalocean, hetzner, godaddy)")
 	InitCmd.Flags().StringArray("dns-env", []string{}, "DNS provider environment variable (KEY=VALUE, can be repeated)")
+	InitCmd.Flags().String("certificate-mode", "", "Certificate mode for Traefik TLS (per-host or wildcard)")
+	InitCmd.Flags().String("wildcard-domain", "", "Base wildcard DNS zone for wildcard certificate mode, e.g. saola.cz")
 }
