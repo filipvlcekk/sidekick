@@ -256,12 +256,19 @@ func shouldPersistRequestedCertificateSettings(existingServer, requestedServer u
 		return true
 	}
 
-	return !shouldRewriteTraefikForCertificateMode(
-		existingServer.CertificateMode,
-		requestedServer.CertificateMode,
-		existingServer.WildcardDomain,
-		requestedServer.WildcardDomain,
-	)
+	return !hasTraefikCoupledConfigChange(existingServer, requestedServer)
+}
+
+func hasTraefikCoupledConfigChange(existingServer, requestedServer utils.SidekickServer) bool {
+	normalizedExisting := existingServer
+	normalizedRequested := requestedServer
+	utils.NormalizeSidekickServer(&normalizedExisting)
+	utils.NormalizeSidekickServer(&normalizedRequested)
+
+	return normalizedExisting.CertEmail != normalizedRequested.CertEmail ||
+		normalizedExisting.DNSProvider != normalizedRequested.DNSProvider ||
+		normalizedExisting.CertificateMode != normalizedRequested.CertificateMode ||
+		normalizedExisting.WildcardDomain != normalizedRequested.WildcardDomain
 }
 
 func applyCertificateSettings(server utils.SidekickServer, mode, wildcardDomain string) (utils.SidekickServer, error) {
@@ -305,6 +312,8 @@ func serverConfigForPersistence(existingServer, requestedServer utils.SidekickSe
 		return serverToPersist
 	}
 
+	serverToPersist.CertEmail = existingServer.CertEmail
+	serverToPersist.DNSProvider = existingServer.DNSProvider
 	serverToPersist.CertificateMode = utils.NormalizeCertificateMode(existingServer.CertificateMode)
 	serverToPersist.WildcardDomain = existingServer.WildcardDomain
 	utils.NormalizeSidekickServer(&serverToPersist)

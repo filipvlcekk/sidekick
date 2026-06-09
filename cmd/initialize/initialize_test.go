@@ -181,20 +181,80 @@ func TestServerConfigForPersistence(t *testing.T) {
 		got := serverConfigForPersistence(existing, requested, false)
 
 		assert.Equal(t, "203.0.113.11", got.Address)
-		assert.Equal(t, "digitalocean", got.DNSProvider)
-		assert.Equal(t, "ops@example.com", got.CertEmail)
+		assert.Equal(t, "cloudflare", got.DNSProvider)
+		assert.Equal(t, "old@example.com", got.CertEmail)
 		assert.Equal(t, utils.CertificateModePerHost, got.CertificateMode)
 		assert.Empty(t, got.WildcardDomain)
+	})
+
+	t.Run("keeps existing email when rewrite did not run", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.10",
+			CertEmail:       "old@example.com",
+			DNSProvider:     "cloudflare",
+			CertificateMode: utils.CertificateModePerHost,
+		}
+		requested := existing
+		requested.Address = "203.0.113.11"
+		requested.CertEmail = "new@example.com"
+
+		got := serverConfigForPersistence(existing, requested, false)
+
+		assert.Equal(t, "203.0.113.11", got.Address)
+		assert.Equal(t, "old@example.com", got.CertEmail)
+		assert.Equal(t, "cloudflare", got.DNSProvider)
+	})
+
+	t.Run("keeps existing provider when rewrite did not run", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.10",
+			CertEmail:       "old@example.com",
+			DNSProvider:     "cloudflare",
+			CertificateMode: utils.CertificateModePerHost,
+		}
+		requested := existing
+		requested.Address = "203.0.113.11"
+		requested.DNSProvider = "digitalocean"
+
+		got := serverConfigForPersistence(existing, requested, false)
+
+		assert.Equal(t, "203.0.113.11", got.Address)
+		assert.Equal(t, "cloudflare", got.DNSProvider)
+		assert.Equal(t, "old@example.com", got.CertEmail)
+	})
+
+	t.Run("keeps requested state when no traefik coupled fields changed", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.10",
+			CertEmail:       "old@example.com",
+			DNSProvider:     "cloudflare",
+			CertificateMode: utils.CertificateModePerHost,
+		}
+		requested := existing
+		requested.Address = "203.0.113.11"
+		requested.PublicKey = "new-public"
+		requested.SecretKey = "new-secret"
+
+		got := serverConfigForPersistence(existing, requested, false)
+
+		assert.Equal(t, requested, got)
 	})
 }
 
 func TestShouldPersistRequestedCertificateSettings(t *testing.T) {
 	existingPerHost := utils.SidekickServer{
 		Name:            "scvd",
+		CertEmail:       "old@example.com",
+		DNSProvider:     "cloudflare",
 		CertificateMode: utils.CertificateModePerHost,
 	}
 	requestedWildcard := utils.SidekickServer{
 		Name:            "scvd",
+		CertEmail:       "old@example.com",
+		DNSProvider:     "cloudflare",
 		CertificateMode: utils.CertificateModeWildcard,
 		WildcardDomain:  "saola.cz",
 	}
@@ -209,5 +269,19 @@ func TestShouldPersistRequestedCertificateSettings(t *testing.T) {
 
 	t.Run("returns true when rewrite ran", func(t *testing.T) {
 		assert.True(t, shouldPersistRequestedCertificateSettings(existingPerHost, requestedWildcard, true))
+	})
+
+	t.Run("returns false when rewrite was skipped and email changed", func(t *testing.T) {
+		requested := existingPerHost
+		requested.CertEmail = "new@example.com"
+
+		assert.False(t, shouldPersistRequestedCertificateSettings(existingPerHost, requested, false))
+	})
+
+	t.Run("returns false when rewrite was skipped and provider changed", func(t *testing.T) {
+		requested := existingPerHost
+		requested.DNSProvider = "digitalocean"
+
+		assert.False(t, shouldPersistRequestedCertificateSettings(existingPerHost, requested, false))
 	})
 }
