@@ -136,7 +136,7 @@ func stage5Docker(client *ssh.Client, p *tea.Program) error {
 	return nil
 }
 
-func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider, envVars map[string]string, existingServer, requestedServer utils.SidekickServer, skipPrompts bool, p *tea.Program) error {
+func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider, envVars map[string]string, existingServer, requestedServer utils.SidekickServer, skipPrompts bool, p *tea.Program) (bool, error) {
 	traefikSetup := false
 	existingHTTP01 := false
 	existingDNS01Provider := ""
@@ -167,9 +167,9 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 		// Fresh install
 		traefikStage := utils.GetTraefikStage(email, provider, envVars)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
-			return err
+			return true, err
 		}
-		return nil
+		return true, nil
 	}
 
 	// Migration: HTTP-01 → DNS-01
@@ -178,14 +178,14 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 			confirm := render.GenerateTextQuestion("Existing HTTP-01 setup detected. Migrate to DNS-01? (y/n)", "y", "")
 			if strings.ToLower(confirm) != "y" {
 				fmt.Println("Skipping Traefik migration")
-				return nil
+				return true, nil
 			}
 		}
 		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
-			return err
+			return true, err
 		}
-		return nil
+		return true, nil
 	}
 
 	// Migration: DNS-01 provider change
@@ -195,14 +195,14 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 				fmt.Sprintf("Current DNS provider is %s. Switch to %s? (y/n)", existingDNS01Provider, provider.TraefikName), "y", "")
 			if strings.ToLower(confirm) != "y" {
 				fmt.Println("Skipping DNS provider change")
-				return nil
+				return true, nil
 			}
 		}
 		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
-			return err
+			return true, err
 		}
-		return nil
+		return true, nil
 	}
 
 	if shouldRewriteTraefikForCertificateMode(
@@ -223,18 +223,18 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 			)
 			if strings.ToLower(confirm) != "y" {
 				fmt.Println("Skipping certification mode migration")
-				return nil
+				return false, nil
 			}
 		}
 		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
-			return err
+			return true, err
 		}
-		return nil
+		return true, nil
 	}
 
 	// Already configured with same provider — skip
-	return nil
+	return true, nil
 }
 
 func applyCertificateSettings(server utils.SidekickServer, mode, wildcardDomain string) (utils.SidekickServer, error) {
@@ -270,6 +270,18 @@ func wildcardInitGuidance(domain string) string {
 
 func defaultInteractiveCertificateMode(_ string) string {
 	return utils.CertificateModePerHost
+}
+
+func serverConfigForPersistence(existingServer, requestedServer utils.SidekickServer, persistRequestedCertificateSettings bool) utils.SidekickServer {
+	serverToPersist := requestedServer
+	if persistRequestedCertificateSettings {
+		return serverToPersist
+	}
+
+	serverToPersist.CertificateMode = utils.NormalizeCertificateMode(existingServer.CertificateMode)
+	serverToPersist.WildcardDomain = existingServer.WildcardDomain
+	utils.NormalizeSidekickServer(&serverToPersist)
+	return serverToPersist
 }
 
 func shouldRewriteTraefikForCertificateMode(existingMode, requestedMode, existingWildcardDomain, requestedWildcardDomain string) bool {
@@ -518,12 +530,15 @@ var InitCmd = &cobra.Command{
 			time.Sleep(time.Millisecond * 100)
 			p.Send(render.NextStageMsg{})
 
-			if err := stage6Traefik(sidekickClient, certEmail, selectedProvider, dnsEnvVars, existingServerConfig, sidekickServer, skipPromptsFlag, p); err != nil {
+			persistRequestedCertificateSettings, err := stage6Traefik(sidekickClient, certEmail, selectedProvider, dnsEnvVars, existingServerConfig, sidekickServer, skipPromptsFlag, p)
+			if err != nil {
 				p.Send(render.ErrorMsg{ErrorStr: fmt.Sprintf("Traefik setup failed: %s", err)})
 				return
 			}
 
-			config.AddOrReplaceServer(sidekickServer)
+			serverToPersist := serverConfigForPersistence(existingServerConfig, sidekickServer, persistRequestedCertificateSettings)
+
+			config.AddOrReplaceServer(serverToPersist)
 			newContext := utils.SidekickContext{Name: sidekickServer.Name, Server: sidekickServer.Name}
 			config.AddOrReplaceContext(newContext)
 			config.CurrentContext = newContext.Name

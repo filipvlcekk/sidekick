@@ -124,3 +124,52 @@ func TestShouldRewriteTraefikForCertificateMode(t *testing.T) {
 		})
 	}
 }
+
+func TestServerConfigForPersistence(t *testing.T) {
+	t.Run("keeps requested certificate settings when migration was applied", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.10",
+			CertificateMode: utils.CertificateModePerHost,
+		}
+		requested := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.11",
+			DNSProvider:     "digitalocean",
+			CertEmail:       "ops@example.com",
+			CertificateMode: utils.CertificateModeWildcard,
+			WildcardDomain:  "saola.cz",
+		}
+
+		got := serverConfigForPersistence(existing, requested, true)
+
+		assert.Equal(t, requested, got)
+	})
+
+	t.Run("reverts only certificate mode fields when migration was declined", func(t *testing.T) {
+		existing := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.10",
+			DNSProvider:     "cloudflare",
+			CertEmail:       "old@example.com",
+			CertificateMode: utils.CertificateModePerHost,
+			WildcardDomain:  "",
+		}
+		requested := utils.SidekickServer{
+			Name:            "scvd",
+			Address:         "203.0.113.11",
+			DNSProvider:     "digitalocean",
+			CertEmail:       "ops@example.com",
+			CertificateMode: utils.CertificateModeWildcard,
+			WildcardDomain:  "saola.cz",
+		}
+
+		got := serverConfigForPersistence(existing, requested, false)
+
+		assert.Equal(t, "203.0.113.11", got.Address)
+		assert.Equal(t, "digitalocean", got.DNSProvider)
+		assert.Equal(t, "ops@example.com", got.CertEmail)
+		assert.Equal(t, utils.CertificateModePerHost, got.CertificateMode)
+		assert.Empty(t, got.WildcardDomain)
+	})
+}
