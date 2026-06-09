@@ -115,3 +115,8 @@ type SidekickContext struct {
 	Name   string `yaml:"name"`
 	Server string `yaml:"server"`
 }
+
+type TraefikTLSModeConfig struct {
+	CertificateMode string
+	WildcardDomain  string
+}

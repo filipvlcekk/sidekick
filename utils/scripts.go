@@ -192,6 +192,7 @@ services:
       - --entrypoints.web.http.redirections.entryPoint.scheme=https
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.http.tls.certresolver=default
+TLS_DOMAINS_FLAGS
       - --providers.docker.exposedbydefault=false
       - --certificatesresolvers.default.acme.email=$EMAIL
       - --certificatesresolvers.default.acme.storage=/ssl-certs/acme.json

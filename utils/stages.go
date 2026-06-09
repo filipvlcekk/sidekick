@@ -62,9 +62,24 @@ var DockerStage = CommandsStage{
 	},
 }
 
+func renderTraefikTLSDomainsFlags(tlsMode TraefikTLSModeConfig) string {
+	normalizedMode := NormalizeCertificateMode(tlsMode.CertificateMode)
+	normalizedDomain := normalizeWildcardName(tlsMode.WildcardDomain)
+
+	if normalizedMode != CertificateModeWildcard || normalizedDomain == "" {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"      - --entrypoints.websecure.http.tls.domains[0].main=%s\n      - --entrypoints.websecure.http.tls.domains[0].sans=*.%s\n",
+		normalizedDomain,
+		normalizedDomain,
+	)
+}
+
 // buildTraefikConfig builds the .env file content and composed docker-compose template.
 // Uses base64 encoding for safe shell transport of credentials.
-func buildTraefikConfig(email string, provider DNSProvider, envVars map[string]string) (envFileB64, composeB64 string) {
+func buildTraefikConfig(email string, provider DNSProvider, envVars map[string]string, tlsMode TraefikTLSModeConfig) (envFileB64, composeB64 string) {
 	envFileContent := ""
 	for key, value := range envVars {
 		envFileContent += fmt.Sprintf("%s=%s\n", key, value)
@@ -73,6 +88,7 @@ func buildTraefikConfig(email string, provider DNSProvider, envVars map[string]s
 	compose := TraefikDockerComposeFile
 	compose = strings.Replace(compose, "$EMAIL", email, 1)
 	compose = strings.Replace(compose, "$DNS_PROVIDER", provider.TraefikName, 1)
+	compose = strings.Replace(compose, "TLS_DOMAINS_FLAGS\n", renderTraefikTLSDomainsFlags(tlsMode), 1)
 
 	envFileB64 = base64.StdEncoding.EncodeToString([]byte(envFileContent))
 	composeB64 = base64.StdEncoding.EncodeToString([]byte(compose))
@@ -81,8 +97,8 @@ func buildTraefikConfig(email string, provider DNSProvider, envVars map[string]s
 
 // GetTraefikMigrationStage replaces existing Traefik config and restarts.
 // Uses --force-recreate instead of down/up to minimize downtime.
-func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
-	envFileB64, composeB64 := buildTraefikConfig(email, provider, envVars)
+func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[string]string, tlsMode TraefikTLSModeConfig) CommandsStage {
+	envFileB64, composeB64 := buildTraefikConfig(email, provider, envVars, tlsMode)
 
 	return CommandsStage{
 		SpinnerSuccessMessage: "Successfully migrated Traefik to DNS-01",
@@ -96,8 +112,8 @@ func GetTraefikMigrationStage(email string, provider DNSProvider, envVars map[st
 	}
 }
 
-func GetTraefikStage(email string, provider DNSProvider, envVars map[string]string) CommandsStage {
-	envFileB64, composeB64 := buildTraefikConfig(email, provider, envVars)
+func GetTraefikStage(email string, provider DNSProvider, envVars map[string]string, tlsMode TraefikTLSModeConfig) CommandsStage {
+	envFileB64, composeB64 := buildTraefikConfig(email, provider, envVars, tlsMode)
 
 	return CommandsStage{
 		SpinnerSuccessMessage: "Successfully setup Traefik",

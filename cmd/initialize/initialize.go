@@ -140,6 +140,10 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 	traefikSetup := false
 	existingHTTP01 := false
 	existingDNS01Provider := ""
+	requestedTLSMode := utils.TraefikTLSModeConfig{
+		CertificateMode: requestedServer.CertificateMode,
+		WildcardDomain:  requestedServer.WildcardDomain,
+	}
 
 	outChan, _, err := utils.RunCommand(client, `[ -d "traefik" ] && echo "1" || echo "0"`)
 	if err == nil {
@@ -165,7 +169,7 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 
 	if !traefikSetup {
 		// Fresh install
-		traefikStage := utils.GetTraefikStage(email, provider, envVars)
+		traefikStage := utils.GetTraefikStage(email, provider, envVars, requestedTLSMode)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
 			return true, err
 		}
@@ -181,7 +185,7 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 				return true, nil
 			}
 		}
-		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
+		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars, requestedTLSMode)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
 			return true, err
 		}
@@ -198,7 +202,7 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 				return true, nil
 			}
 		}
-		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
+		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars, requestedTLSMode)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
 			return true, err
 		}
@@ -226,7 +230,7 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 				return false, nil
 			}
 		}
-		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars)
+		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars, requestedTLSMode)
 		if err := utils.RunCommandsWithTUIHook(client, traefikStage.Commands, p); err != nil {
 			return true, err
 		}
@@ -235,6 +239,16 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 
 	// Already configured with same provider — skip
 	return true, nil
+}
+
+func validateCertificateModeFlags(mode, wildcardDomain string) error {
+	if strings.TrimSpace(wildcardDomain) == "" {
+		return nil
+	}
+	if utils.NormalizeCertificateMode(mode) != utils.CertificateModeWildcard {
+		return fmt.Errorf("--wildcard-domain requires --certificate-mode=wildcard")
+	}
+	return nil
 }
 
 func applyCertificateSettings(server utils.SidekickServer, mode, wildcardDomain string) (utils.SidekickServer, error) {
@@ -329,6 +343,9 @@ var InitCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		certificateModeFlag, _ := cmd.Flags().GetString("certificate-mode")
 		wildcardDomainFlag, _ := cmd.Flags().GetString("wildcard-domain")
+		if err := validateCertificateModeFlags(certificateModeFlag, wildcardDomainFlag); err != nil {
+			log.Fatalf("%s", err)
+		}
 
 		if name == "" {
 			randomName := namesgenerator.GetRandomName(0)

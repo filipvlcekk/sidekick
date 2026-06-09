@@ -42,6 +42,20 @@ func TestApplyCertificateSettings(t *testing.T) {
 	})
 }
 
+func TestValidateCertificateModeFlags(t *testing.T) {
+	t.Run("allows wildcard domain in wildcard mode", func(t *testing.T) {
+		err := validateCertificateModeFlags(utils.CertificateModeWildcard, "saola.cz")
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("fails when wildcard domain is provided outside wildcard mode", func(t *testing.T) {
+		err := validateCertificateModeFlags(utils.CertificateModePerHost, "saola.cz")
+
+		assert.EqualError(t, err, `--wildcard-domain requires --certificate-mode=wildcard`)
+	})
+}
+
 func TestWildcardInitGuidance(t *testing.T) {
 	msg := wildcardInitGuidance("saola.cz")
 	normalized := strings.ToLower(msg)
