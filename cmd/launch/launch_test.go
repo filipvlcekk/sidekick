@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/mightymoud/sidekick/render"
+	"github.com/mightymoud/sidekick/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -40,4 +41,38 @@ func TestShouldValidateTLSRequiresSuccessfulLaunch(t *testing.T) {
 			assert.Equal(t, tt.expected, shouldValidateTLS(tt.model))
 		})
 	}
+}
+
+func TestBuildDockerServiceOmitsPerAppCertresolverInWildcardMode(t *testing.T) {
+	service, err := buildDockerService(
+		utils.SidekickServer{
+			CertificateMode: utils.CertificateModeWildcard,
+			WildcardDomain:  "saola.cz",
+		},
+		"uptimekuma",
+		"uptimekuma.saola.cz",
+		"3001",
+		"uptimekuma",
+		nil,
+	)
+
+	assert.NoError(t, err)
+	assert.Contains(t, service.Labels, "traefik.http.routers.uptimekuma.tls=true")
+	assert.NotContains(t, service.Labels, "traefik.http.routers.uptimekuma.tls.certresolver=default")
+}
+
+func TestBuildDockerServiceRejectsOutOfZoneWildcardDomain(t *testing.T) {
+	_, err := buildDockerService(
+		utils.SidekickServer{
+			CertificateMode: utils.CertificateModeWildcard,
+			WildcardDomain:  "saola.cz",
+		},
+		"uptimekuma",
+		"foo.example.com",
+		"3001",
+		"uptimekuma",
+		nil,
+	)
+
+	assert.EqualError(t, err, "app domain foo.example.com is outside wildcard domain saola.cz")
 }

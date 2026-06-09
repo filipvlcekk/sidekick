@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -87,6 +88,43 @@ func IsValidWildcardDomain(domain string) bool {
 	}
 
 	return true
+}
+
+func ValidateAppDomainForServer(domain string, server SidekickServer) error {
+	normalizedServer := server
+	NormalizeSidekickServer(&normalizedServer)
+
+	if normalizedServer.CertificateMode != CertificateModeWildcard {
+		return nil
+	}
+
+	if !IsHostnameWithinWildcardDomain(domain, normalizedServer.WildcardDomain) {
+		return fmt.Errorf("app domain %s is outside wildcard domain %s", domain, normalizedServer.WildcardDomain)
+	}
+
+	return nil
+}
+
+func BuildAppTraefikLabels(serviceName, domain string, port uint64, server SidekickServer) ([]string, error) {
+	if err := ValidateAppDomainForServer(domain, server); err != nil {
+		return nil, err
+	}
+
+	labels := []string{
+		"traefik.enable=true",
+		fmt.Sprintf("traefik.http.routers.%s.rule=Host(`%s`)", serviceName, domain),
+		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%s", serviceName, strconv.FormatUint(port, 10)),
+		fmt.Sprintf("traefik.http.routers.%s.tls=true", serviceName),
+		"traefik.docker.network=sidekick",
+	}
+
+	normalizedServer := server
+	NormalizeSidekickServer(&normalizedServer)
+	if normalizedServer.CertificateMode != CertificateModeWildcard {
+		labels = append(labels, fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=default", serviceName))
+	}
+
+	return labels, nil
 }
 
 func normalizeWildcardName(name string) string {

@@ -123,18 +123,16 @@ func loadDockerEnvProperty(appConfig utils.SidekickAppConfig) ([]string, error) 
 	return dockerEnvProperty, nil
 }
 
-func buildDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty []string) utils.DockerComposeFile {
+func buildDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty []string, server utils.SidekickServer) (utils.DockerComposeFile, error) {
+	labels, err := utils.BuildAppTraefikLabels(appConfig.Name, appConfig.Url, appConfig.Port, server)
+	if err != nil {
+		return utils.DockerComposeFile{}, err
+	}
+
 	newService := utils.DockerService{
-		Image:   appConfig.Name,
-		Restart: "unless-stopped",
-		Labels: []string{
-			"traefik.enable=true",
-			fmt.Sprintf("traefik.http.routers.%s.rule=Host(`%s`)", appConfig.Name, appConfig.Url),
-			fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%d", appConfig.Name, appConfig.Port),
-			fmt.Sprintf("traefik.http.routers.%s.tls=true", appConfig.Name),
-			fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=default", appConfig.Name),
-			"traefik.docker.network=sidekick",
-		},
+		Image:       appConfig.Name,
+		Restart:     "unless-stopped",
+		Labels:      labels,
 		Environment: dockerEnvProperty,
 		Networks: []string{
 			"sidekick",
@@ -150,11 +148,16 @@ func buildDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty
 				External: true,
 			},
 		},
-	}
+	}, nil
 }
 
-func writeDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty []string) error {
-	dockerComposeFile, err := yaml.Marshal(buildDockerComposeFile(appConfig, dockerEnvProperty))
+func writeDockerComposeFile(appConfig utils.SidekickAppConfig, dockerEnvProperty []string, server utils.SidekickServer) error {
+	composeConfig, err := buildDockerComposeFile(appConfig, dockerEnvProperty, server)
+	if err != nil {
+		return err
+	}
+
+	dockerComposeFile, err := yaml.Marshal(composeConfig)
 	if err != nil {
 		return err
 	}
@@ -302,7 +305,7 @@ It assumes that your VPS is already configured and that your application is read
 			render.GetLogger(log.Options{Prefix: "Env File"}).Fatalf("Failed to load env file: %s", err)
 		}
 
-		if err := writeDockerComposeFile(appConfig, dockerEnvProperty); err != nil {
+		if err := writeDockerComposeFile(appConfig, dockerEnvProperty, sidekickServer); err != nil {
 			render.GetLogger(log.Options{Prefix: "Docker Compose"}).Fatalf("Failed to render docker compose file: %s", err)
 		}
 		defer os.Remove("docker-compose.yaml")

@@ -48,6 +48,28 @@ func shouldValidateTLS(model tea.Model) bool {
 	return ok && tuiModel.AllDone
 }
 
+func buildDockerService(server utils.SidekickServer, appName, appDomain, appPort, imageName string, dockerEnvProperty []string) (utils.DockerService, error) {
+	portNumber, err := strconv.ParseUint(appPort, 10, 64)
+	if err != nil {
+		return utils.DockerService{}, err
+	}
+
+	labels, err := utils.BuildAppTraefikLabels(appName, appDomain, portNumber, server)
+	if err != nil {
+		return utils.DockerService{}, err
+	}
+
+	return utils.DockerService{
+		Image:       imageName,
+		Restart:     "unless-stopped",
+		Labels:      labels,
+		Environment: dockerEnvProperty,
+		Networks: []string{
+			"sidekick",
+		},
+	}, nil
+}
+
 func getDockerClient() (*client.Client, error) {
 	if dockerClient != nil {
 		return dockerClient, nil
@@ -297,21 +319,9 @@ var LaunchCmd = &cobra.Command{
 
 		// make a docker service
 		imageName := appName
-		newService := utils.DockerService{
-			Image:   imageName,
-			Restart: "unless-stopped",
-			Labels: []string{
-				"traefik.enable=true",
-				fmt.Sprintf("traefik.http.routers.%s.rule=Host(`%s`)", appName, appDomain),
-				fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%s", appName, appPort),
-				fmt.Sprintf("traefik.http.routers.%s.tls=true", appName),
-				fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=default", appName),
-				"traefik.docker.network=sidekick",
-			},
-			Environment: dockerEnvProperty,
-			Networks: []string{
-				"sidekick",
-			},
+		newService, err := buildDockerService(sidekickServer, appName, appDomain, appPort, imageName, dockerEnvProperty)
+		if err != nil {
+			render.GetLogger(log.Options{Prefix: "App Config"}).Fatalf("%s", err)
 		}
 		newDockerCompose := utils.DockerComposeFile{
 			Services: map[string]utils.DockerService{
