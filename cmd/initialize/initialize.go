@@ -182,7 +182,7 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 			confirm := render.GenerateTextQuestion("Existing HTTP-01 setup detected. Migrate to DNS-01? (y/n)", "y", "")
 			if strings.ToLower(confirm) != "y" {
 				fmt.Println("Skipping Traefik migration")
-				return true, nil
+				return shouldPersistRequestedCertificateSettings(existingServer, requestedServer, false), nil
 			}
 		}
 		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars, requestedTLSMode)
@@ -199,7 +199,7 @@ func stage6Traefik(client *ssh.Client, email string, provider utils.DNSProvider,
 				fmt.Sprintf("Current DNS provider is %s. Switch to %s? (y/n)", existingDNS01Provider, provider.TraefikName), "y", "")
 			if strings.ToLower(confirm) != "y" {
 				fmt.Println("Skipping DNS provider change")
-				return true, nil
+				return shouldPersistRequestedCertificateSettings(existingServer, requestedServer, false), nil
 			}
 		}
 		traefikStage := utils.GetTraefikMigrationStage(email, provider, envVars, requestedTLSMode)
@@ -249,6 +249,19 @@ func validateCertificateModeFlags(mode, wildcardDomain string) error {
 		return fmt.Errorf("--wildcard-domain requires --certificate-mode=wildcard")
 	}
 	return nil
+}
+
+func shouldPersistRequestedCertificateSettings(existingServer, requestedServer utils.SidekickServer, traefikRewriteRan bool) bool {
+	if traefikRewriteRan {
+		return true
+	}
+
+	return !shouldRewriteTraefikForCertificateMode(
+		existingServer.CertificateMode,
+		requestedServer.CertificateMode,
+		existingServer.WildcardDomain,
+		requestedServer.WildcardDomain,
+	)
 }
 
 func applyCertificateSettings(server utils.SidekickServer, mode, wildcardDomain string) (utils.SidekickServer, error) {

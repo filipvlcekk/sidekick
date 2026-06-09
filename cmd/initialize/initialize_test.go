@@ -187,3 +187,27 @@ func TestServerConfigForPersistence(t *testing.T) {
 		assert.Empty(t, got.WildcardDomain)
 	})
 }
+
+func TestShouldPersistRequestedCertificateSettings(t *testing.T) {
+	existingPerHost := utils.SidekickServer{
+		Name:            "scvd",
+		CertificateMode: utils.CertificateModePerHost,
+	}
+	requestedWildcard := utils.SidekickServer{
+		Name:            "scvd",
+		CertificateMode: utils.CertificateModeWildcard,
+		WildcardDomain:  "saola.cz",
+	}
+
+	t.Run("returns false when rewrite was skipped and certificate mode changed", func(t *testing.T) {
+		assert.False(t, shouldPersistRequestedCertificateSettings(existingPerHost, requestedWildcard, false))
+	})
+
+	t.Run("returns true when rewrite was skipped but certificate mode did not change", func(t *testing.T) {
+		assert.True(t, shouldPersistRequestedCertificateSettings(existingPerHost, existingPerHost, false))
+	})
+
+	t.Run("returns true when rewrite ran", func(t *testing.T) {
+		assert.True(t, shouldPersistRequestedCertificateSettings(existingPerHost, requestedWildcard, true))
+	})
+}
