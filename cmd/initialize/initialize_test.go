@@ -1,6 +1,7 @@
 package initialize
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/mightymoud/sidekick/utils"
@@ -43,12 +44,21 @@ func TestApplyCertificateSettings(t *testing.T) {
 
 func TestWildcardInitGuidance(t *testing.T) {
 	msg := wildcardInitGuidance("saola.cz")
+	normalized := strings.ToLower(msg)
 
-	assert.Contains(t, msg, "optional but recommended")
+	assert.Contains(t, normalized, "optional but recommended")
 	assert.Contains(t, msg, "*.example.com")
 	assert.Contains(t, msg, "*.saola.cz")
-	assert.Contains(t, msg, "per-app DNS records")
-	assert.Contains(t, msg, "wildcard DNS record")
+	assert.Contains(t, normalized, "per-app dns records")
+	assert.Contains(t, normalized, "wildcard dns record")
+	assert.Contains(t, normalized, "all deployed app hostnames")
+	assert.Contains(t, normalized, "must stay within saola.cz")
+}
+
+func TestDefaultInteractiveCertificateMode(t *testing.T) {
+	assert.Equal(t, utils.CertificateModePerHost, defaultInteractiveCertificateMode(""))
+	assert.Equal(t, utils.CertificateModePerHost, defaultInteractiveCertificateMode(utils.CertificateModePerHost))
+	assert.Equal(t, utils.CertificateModePerHost, defaultInteractiveCertificateMode(utils.CertificateModeWildcard))
 }
 
 func TestShouldRewriteTraefikForCertificateMode(t *testing.T) {

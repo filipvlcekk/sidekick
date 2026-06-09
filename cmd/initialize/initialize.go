@@ -261,10 +261,15 @@ func wildcardInitGuidance(domain string) string {
 	}
 
 	return fmt.Sprintf(
-		"Wildcard DNS is optional but recommended.\nYou can keep using per-app DNS records for each hostname, or create one wildcard DNS record such as %s (for example %s) that points to this server.",
+		"Wildcard DNS is optional but recommended.\nYou can keep using per-app DNS records for each hostname, or create one wildcard DNS record such as %s (for example %s) that points to this server.\nAll deployed app hostnames on this server must stay within %s.",
 		serverPattern,
 		"*.example.com",
+		normalizedDomain,
 	)
+}
+
+func defaultInteractiveCertificateMode(_ string) string {
+	return utils.CertificateModePerHost
 }
 
 func shouldRewriteTraefikForCertificateMode(existingMode, requestedMode, existingWildcardDomain, requestedWildcardDomain string) bool {
@@ -419,7 +424,7 @@ var InitCmd = &cobra.Command{
 
 		selectedCertificateMode := utils.NormalizeCertificateMode(certificateModeFlag)
 		if certificateModeFlag == "" {
-			selectedCertificateMode = utils.NormalizeCertificateMode(sidekickServer.CertificateMode)
+			selectedCertificateMode = defaultInteractiveCertificateMode(sidekickServer.CertificateMode)
 			options := []huh.Option[string]{
 				huh.NewOption("Per-host", utils.CertificateModePerHost),
 				huh.NewOption("Wildcard", utils.CertificateModeWildcard),
