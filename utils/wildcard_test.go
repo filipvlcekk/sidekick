@@ -22,6 +22,7 @@ func TestIsHostnameWithinWildcardDomain(t *testing.T) {
 	assert.True(t, IsHostnameWithinWildcardDomain("grafana.saola.cz", "saola.cz"))
 	assert.False(t, IsHostnameWithinWildcardDomain("saola.cz", "saola.cz"))
 	assert.False(t, IsHostnameWithinWildcardDomain("foo.bar.saola.cz", "saola.cz"))
+	assert.False(t, IsHostnameWithinWildcardDomain("foo-.saola.cz", "saola.cz"))
 	assert.False(t, IsHostnameWithinWildcardDomain("foo.example.com", "saola.cz"))
 	assert.False(t, IsHostnameWithinWildcardDomain("localhost", "saola.cz"))
 }

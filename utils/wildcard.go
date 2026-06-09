@@ -67,6 +67,10 @@ func IsHostnameWithinWildcardDomain(hostname, wildcardDomain string) bool {
 		return false
 	}
 
+	if !areValidDNSLabels(hostnameLabels) || !areValidDNSLabels(wildcardLabels) {
+		return false
+	}
+
 	for i := range wildcardLabels {
 		if hostnameLabels[i+1] != wildcardLabels[i] {
 			return false
@@ -78,14 +82,8 @@ func IsHostnameWithinWildcardDomain(hostname, wildcardDomain string) bool {
 
 func IsValidWildcardDomain(domain string) bool {
 	labels := splitDomainLabels(domain)
-	if len(labels) < 2 {
+	if len(labels) < 2 || !areValidDNSLabels(labels) {
 		return false
-	}
-
-	for _, label := range labels {
-		if !dnsLabelPattern.MatchString(label) {
-			return false
-		}
 	}
 
 	return true
@@ -109,4 +107,14 @@ func splitDomainLabels(name string) []string {
 	}
 
 	return labels
+}
+
+func areValidDNSLabels(labels []string) bool {
+	for _, label := range labels {
+		if !dnsLabelPattern.MatchString(label) {
+			return false
+		}
+	}
+
+	return true
 }

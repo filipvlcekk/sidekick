@@ -97,6 +97,8 @@ func initConfig(cmd *cobra.Command) {
 		}
 	}
 
+	utils.NormalizeSidekickConfig(&config)
+
 	if config.Version != "1" && !shouldSkipConfigVersionCheck(cmd) {
 		pterm.Fatal.Println("An older version of the config file found. Please run 'sidekick config migrate'.")
 	}
