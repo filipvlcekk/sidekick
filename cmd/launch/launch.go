@@ -420,6 +420,6 @@ var LaunchCmd = &cobra.Command{
 		} else {
 			fmt.Printf("\n%s\n", utils.FormatCertCheckOutput(result))
 		}
-		fmt.Printf("  %s\n", utils.FormatDNSCheckOutput(utils.CheckPublicDNS(appDomain, sidekickServer.Address)))
+		fmt.Printf("  %s\n", utils.FormatDNSCheckOutputForServer(utils.CheckPublicDNS(appDomain, sidekickServer.Address), sidekickServer))
 	},
 }

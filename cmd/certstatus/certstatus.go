@@ -3,6 +3,7 @@ package certstatus
 import (
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -98,17 +99,22 @@ var CertStatusCmd = &cobra.Command{
 
 			fmt.Printf("%s\n", domain)
 
-			// Check if domain has entry in acme.json
-			if acmeJSON != "{}" && acmeJSON != "" {
-				if acmeEntryExists(acmeJSON, domain) {
-					fmt.Printf("  ✓ ACME storage: certificate entry found\n")
-				} else {
-					fmt.Printf("  ✗ ACME storage: no certificate entry for this domain\n")
-				}
+			coverage := summarizeCertificateCoverage(server, domain, acmeJSON)
+			switch {
+			case coverage.UsesWildcard && !coverage.DomainWithinZone:
+				fmt.Printf("  ✗ Wildcard coverage: app domain is outside wildcard domain %s\n", server.WildcardDomain)
+			case coverage.ACMEEntryFound && coverage.UsesWildcard:
+				fmt.Printf("  ✓ ACME storage: wildcard certificate coverage found\n")
+			case coverage.ACMEEntryFound:
+				fmt.Printf("  ✓ ACME storage: certificate entry found\n")
+			case coverage.UsesWildcard:
+				fmt.Printf("  ✗ ACME storage: no wildcard certificate coverage found\n")
+			default:
+				fmt.Printf("  ✗ ACME storage: no certificate entry for this domain\n")
 			}
 
-			// Validate TLS cert
-			result, err := utils.ValidateTLSCert(domain)
+			// Validate TLS cert against the known server address while preserving domain SNI.
+			result, err := utils.ValidateTLSCertAtAddress(domain, net.JoinHostPort(server.Address, "443"))
 			if err != nil {
 				fmt.Printf("  ✗ Connection failed: %s\n", err)
 			} else if result.Valid {
@@ -133,9 +139,16 @@ var CertStatusCmd = &cobra.Command{
 				}
 			}
 
+			fmt.Printf("  %s\n", utils.FormatDNSCheckOutputForServer(utils.CheckPublicDNS(domain, server.Address), server))
 			fmt.Println()
 		}
 	},
+}
+
+type certificateCoverageStatus struct {
+	UsesWildcard     bool
+	DomainWithinZone bool
+	ACMEEntryFound   bool
 }
 
 func filterLogsForDomain(logs, domain string) string {
@@ -156,6 +169,35 @@ func filterLogsForDomain(logs, domain string) string {
 
 func acmeEntryExists(acmeJSON, domain string) bool {
 	return strings.Contains(acmeJSON, domain)
+}
+
+func summarizeCertificateCoverage(server utils.SidekickServer, domain, acmeJSON string) certificateCoverageStatus {
+	normalizedServer := server
+	utils.NormalizeSidekickServer(&normalizedServer)
+
+	if normalizedServer.CertificateMode == utils.CertificateModeWildcard {
+		withinZone := utils.IsHostnameWithinWildcardDomain(domain, normalizedServer.WildcardDomain)
+		if !withinZone {
+			return certificateCoverageStatus{
+				UsesWildcard:     true,
+				DomainWithinZone: false,
+				ACMEEntryFound:   false,
+			}
+		}
+
+		return certificateCoverageStatus{
+			UsesWildcard:     true,
+			DomainWithinZone: true,
+			ACMEEntryFound: acmeEntryExists(acmeJSON, normalizedServer.WildcardDomain) ||
+				acmeEntryExists(acmeJSON, "*."+normalizedServer.WildcardDomain) ||
+				acmeEntryExists(acmeJSON, domain),
+		}
+	}
+
+	return certificateCoverageStatus{
+		DomainWithinZone: true,
+		ACMEEntryFound:   acmeEntryExists(acmeJSON, domain),
+	}
 }
 
 func init() {

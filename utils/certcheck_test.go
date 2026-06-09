@@ -181,6 +181,19 @@ func TestCheckPublicDNS_LookupFailureWarns(t *testing.T) {
 	assert.Contains(t, FormatDNSCheckOutput(result), "Public DNS lookup failed for example.com")
 }
 
+func TestFormatDNSCheckOutputForServerAddsWildcardGuidance(t *testing.T) {
+	output := FormatDNSCheckOutputForServer(DNSCheckResult{
+		Domain:     "uptimekuma.saola.cz",
+		ExpectedIP: "203.0.113.10",
+	}, SidekickServer{
+		CertificateMode: CertificateModeWildcard,
+		WildcardDomain:  "saola.cz",
+	})
+
+	assert.Contains(t, output, "per-app DNS records")
+	assert.Contains(t, output, "*.saola.cz")
+}
+
 type fakeTLSConnection struct {
 	state tls.ConnectionState
 }

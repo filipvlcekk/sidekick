@@ -389,6 +389,6 @@ It assumes that your VPS is already configured and that your application is read
 		} else {
 			fmt.Printf("\n%s\n", utils.FormatCertCheckOutput(result))
 		}
-		fmt.Printf("  %s\n", utils.FormatDNSCheckOutput(utils.CheckPublicDNS(appConfig.Url, sidekickServer.Address)))
+		fmt.Printf("  %s\n", utils.FormatDNSCheckOutputForServer(utils.CheckPublicDNS(appConfig.Url, sidekickServer.Address), sidekickServer))
 	},
 }

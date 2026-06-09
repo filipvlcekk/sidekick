@@ -256,3 +256,19 @@ func FormatDNSCheckOutput(result DNSCheckResult) string {
 	return fmt.Sprintf("⚠ Public DNS resolves %s elsewhere: %s (expected %s)",
 		result.Domain, strings.Join(result.ResolvedIPs, ", "), result.ExpectedIP)
 }
+
+func FormatDNSCheckOutputForServer(result DNSCheckResult, server SidekickServer) string {
+	msg := FormatDNSCheckOutput(result)
+
+	normalizedServer := server
+	NormalizeSidekickServer(&normalizedServer)
+	if normalizedServer.CertificateMode != CertificateModeWildcard {
+		return msg
+	}
+
+	if result.LookupErr != nil || !result.MatchesExpected {
+		return msg + fmt.Sprintf("\n  Wildcard DNS is optional; you can use per-app DNS records or a wildcard record like *.%s", normalizedServer.WildcardDomain)
+	}
+
+	return msg
+}
