@@ -35,3 +35,55 @@ func TestSidekickConfigSaveCreatesParentDirectory(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, config, saved)
 }
+
+func TestSidekickConfigSaveIncludesWildcardServerFields(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "default.yaml")
+
+	config := SidekickConfig{
+		Version:        "1",
+		CurrentContext: "scvd",
+		Contexts: []SidekickContext{
+			{Name: "scvd", Server: "scvd"},
+		},
+		Servers: []SidekickServer{
+			{
+				Name:            "scvd",
+				Address:         "204.10.194.116",
+				CertificateMode: CertificateModeWildcard,
+				WildcardDomain:  "saola.cz",
+			},
+		},
+	}
+
+	err := config.Save(configPath)
+	assert.NoError(t, err)
+
+	content, err := os.ReadFile(configPath)
+	assert.NoError(t, err)
+	assert.Contains(t, string(content), "certificateMode: wildcard")
+	assert.Contains(t, string(content), "wildcardDomain: saola.cz")
+}
+
+func TestSidekickConfigLoadLegacyServerDefaultsToPerHost(t *testing.T) {
+	const configYAML = `
+version: "1"
+servers:
+  - name: scvd
+    serveraddress: 204.10.194.116
+contexts:
+  - name: scvd
+    server: scvd
+current-context: scvd
+`
+
+	var config SidekickConfig
+	err := yaml.Unmarshal([]byte(configYAML), &config)
+	assert.NoError(t, err)
+
+	if assert.Len(t, config.Servers, 1) {
+		server := config.Servers[0]
+		assert.Equal(t, CertificateModePerHost, NormalizeCertificateMode(server.CertificateMode))
+		assert.Empty(t, server.WildcardDomain)
+	}
+}
