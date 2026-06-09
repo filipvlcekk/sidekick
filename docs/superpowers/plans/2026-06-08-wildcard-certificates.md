@@ -264,7 +264,7 @@ Expected: FAIL because the helper and mode handling do not exist.
 The interactive `init` flow must:
 
 - ask `Certification mode`
-- default to `Per-host`
+- default to the current saved server mode when rerunning `init`, otherwise fall back to `Per-host`
 - if `Wildcard`, ask for `Wildcard domain`
 - print a short explanation that wildcard DNS is optional but recommended
 - explain that users can either create per-app records or a wildcard record like `*.saola.cz`
