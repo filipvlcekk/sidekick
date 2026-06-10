@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
@@ -17,6 +18,18 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
+
+var loadKeyFilesAuthMethods = getKeyFilesAuth
+
+var loadSSHAgentAuthMethod = func(sshAgentSock string) (ssh.AuthMethod, io.Closer, error) {
+	conn, err := net.Dial("unix", sshAgentSock)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	agentClient := agent.NewClient(conn)
+	return ssh.PublicKeysCallback(agentClient.Signers), conn, nil
+}
 
 func getKeyFilesAuth() ([]ssh.AuthMethod, error) {
 	user, err := user.Current()
@@ -68,26 +81,38 @@ func inspectServerPublicKey(key ssh.PublicKey, hostname string) {
 
 }
 
+func getSSHAuthMethods(sshAgentSock string) ([]ssh.AuthMethod, io.Closer, error) {
+	authMethods, err := loadKeyFilesAuthMethods()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var agentCloser io.Closer
+	if sshAgentSock != "" {
+		agentAuthMethod, closer, err := loadSSHAgentAuthMethod(sshAgentSock)
+		if err == nil {
+			authMethods = append(authMethods, agentAuthMethod)
+			agentCloser = closer
+		}
+	}
+
+	if len(authMethods) == 0 {
+		return nil, nil, errors.New("no SSH authentication methods available; add a private key under ~/.ssh or start ssh-agent")
+	}
+
+	return authMethods, agentCloser, nil
+}
+
 func GetSshClient(server string, sshUser string) (*ssh.Client, error) {
 	sshPort := "22"
 	sshAgentSock := os.Getenv("SSH_AUTH_SOCK")
-	if sshAgentSock == "" {
-		log.Fatal("No SSH SOCK AVAILABLE")
-		return nil, errors.New("Error happened connecting to ssh-agent")
-	}
-
-	conn, err := net.Dial("unix", sshAgentSock)
+	authMethods, agentCloser, err := getSSHAuthMethods(sshAgentSock)
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
-
-	agentClient := agent.NewClient(conn)
-
-	// Get auth of standard keys not in agent
-	authMethods, _ := getKeyFilesAuth()
-
-	authMethods = append(authMethods, ssh.PublicKeysCallback(agentClient.Signers))
+	if agentCloser != nil {
+		defer agentCloser.Close()
+	}
 
 	cb := ssh.HostKeyCallback(func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		currentUser, _ := user.Current()
@@ -130,7 +155,7 @@ func GetSshClient(server string, sshUser string) (*ssh.Client, error) {
 		workingClient, sshClientErr := ssh.Dial("tcp", fmt.Sprintf("%s:%s", server, sshPort), config)
 		if sshClientErr != nil {
 			if sshClientErr.Error() != expectedClientErr.Error() {
-				log.Fatalf("Failed to create ssh client to the server: %v", sshClientErr)
+				return nil, fmt.Errorf("failed to create ssh client to the server: %w", sshClientErr)
 			}
 			continue
 		}
