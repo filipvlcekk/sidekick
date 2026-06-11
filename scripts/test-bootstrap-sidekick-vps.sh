@@ -24,4 +24,28 @@ if [[ "${actual}" != "${expected}" ]]; then
   exit 1
 fi
 
+DOCKER_APT_ARCH=amd64 DOCKER_APT_CODENAME=noble repo_line="$(docker_apt_repo_line)"
+expected_repo_line='deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable'
+if [[ "${repo_line}" != "${expected_repo_line}" ]]; then
+  echo "docker_apt_repo_line produced unexpected content"
+  echo "expected: ${expected_repo_line}"
+  echo "actual:   ${repo_line}"
+  exit 1
+fi
+
+plugin_path="$(compose_plugin_install_path)"
+if [[ "${plugin_path}" != "/usr/local/lib/docker/cli-plugins/docker-compose" ]]; then
+  echo "compose_plugin_install_path produced unexpected path: ${plugin_path}"
+  exit 1
+fi
+
+COMPOSE_PLUGIN_ARCH=x86_64 plugin_url="$(compose_plugin_download_url)"
+expected_plugin_url='https://github.com/docker/compose/releases/download/v2.39.2/docker-compose-linux-x86_64'
+if [[ "${plugin_url}" != "${expected_plugin_url}" ]]; then
+  echo "compose_plugin_download_url produced unexpected url"
+  echo "expected: ${expected_plugin_url}"
+  echo "actual:   ${plugin_url}"
+  exit 1
+fi
+
 echo "bootstrap-sidekick-vps smoke test passed"

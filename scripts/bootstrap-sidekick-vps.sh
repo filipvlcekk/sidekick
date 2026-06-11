@@ -3,6 +3,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+COMPOSE_PLUGIN_VERSION="v2.39.2"
 
 append_if_missing() {
   local line="$1"
@@ -17,6 +18,48 @@ append_if_missing() {
 log_section() {
   echo
   echo "==> $1"
+}
+
+docker_apt_repo_line() {
+  local arch codename
+  arch="${DOCKER_APT_ARCH:-}"
+  codename="${DOCKER_APT_CODENAME:-}"
+
+  if [[ -z "${arch}" ]]; then
+    arch="$(dpkg --print-architecture)"
+  fi
+  if [[ -z "${codename}" ]]; then
+    codename="$(
+      . /etc/os-release
+      echo "$VERSION_CODENAME"
+    )"
+  fi
+
+  printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu %s stable' \
+    "${arch}" \
+    "${codename}"
+}
+
+compose_plugin_install_path() {
+  printf '/usr/local/lib/docker/cli-plugins/docker-compose'
+}
+
+compose_plugin_download_url() {
+  local arch
+  arch="${COMPOSE_PLUGIN_ARCH:-$(uname -m)}"
+
+  case "${arch}" in
+    x86_64)
+      printf 'https://github.com/docker/compose/releases/download/%s/docker-compose-linux-x86_64' "${COMPOSE_PLUGIN_VERSION}"
+      ;;
+    aarch64|arm64)
+      printf 'https://github.com/docker/compose/releases/download/%s/docker-compose-linux-aarch64' "${COMPOSE_PLUGIN_VERSION}"
+      ;;
+    *)
+      echo "Error: unsupported architecture for docker compose plugin fallback: ${arch}" >&2
+      return 1
+      ;;
+  esac
 }
 
 require_non_root_user() {
@@ -48,7 +91,45 @@ prompt_server_ip() {
 install_system_packages() {
   log_section "Installing system packages"
   sudo apt-get update
-  sudo apt-get install -y age ca-certificates curl docker.io git openssh-client snapd
+  sudo apt-get install -y age ca-certificates curl git openssh-client snapd
+}
+
+install_docker_from_repo() {
+  sudo install -m 0755 -d /etc/apt/keyrings
+  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+  docker_apt_repo_line | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+  sudo apt-get update
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+install_compose_plugin_fallback() {
+  log_section "Installing docker compose plugin fallback"
+
+  local plugin_dir plugin_path plugin_url tmp_file
+  plugin_dir="$(dirname "$(compose_plugin_install_path)")"
+  plugin_path="$(compose_plugin_install_path)"
+  plugin_url="$(compose_plugin_download_url)"
+  tmp_file="$(mktemp)"
+
+  sudo mkdir -p "${plugin_dir}"
+  curl -fsSL "${plugin_url}" -o "${tmp_file}"
+  sudo mv "${tmp_file}" "${plugin_path}"
+  sudo chmod +x "${plugin_path}"
+}
+
+install_docker() {
+  log_section "Installing Docker"
+  if install_docker_from_repo; then
+    :
+  else
+    echo "Official Docker apt install failed; falling back to distro Docker plus direct compose plugin install."
+    sudo rm -f /etc/apt/sources.list.d/docker.list
+    sudo apt-get update
+    sudo apt-get install -y docker.io
+    install_compose_plugin_fallback
+  fi
+
   sudo systemctl enable --now docker
   sudo usermod -aG docker "${USER}" || true
 }
@@ -137,6 +218,7 @@ ensure_sidekick_user() {
   sudo chown -R sidekick:sidekick /home/sidekick/.ssh
   sudo chmod 700 /home/sidekick/.ssh
   sudo chmod 600 /home/sidekick/.ssh/authorized_keys
+  sudo usermod -aG docker sidekick || true
 }
 
 run_self_checks() {
@@ -158,6 +240,12 @@ run_self_checks() {
     failures+=("docker is not installed")
   fi
 
+  if docker compose version >/dev/null 2>&1; then
+    ready+=("docker compose available for ${USER}")
+  else
+    failures+=("docker compose is not available for ${USER}")
+  fi
+
   if command -v age >/dev/null 2>&1; then
     ready+=("age installed")
   else
@@ -174,6 +262,12 @@ run_self_checks() {
     ready+=("public-key SSH login to sidekick@${SERVER_IP} works")
   else
     failures+=("public-key SSH login to sidekick@${SERVER_IP} failed")
+  fi
+
+  if sudo -u sidekick -H bash -lc 'docker compose version' >/dev/null 2>&1; then
+    ready+=("docker compose available for sidekick user")
+  else
+    failures+=("docker compose is not available for sidekick user")
   fi
 
   if [[ -S "${SSH_AUTH_SOCK:-}" ]]; then
@@ -201,6 +295,7 @@ main() {
   prompt_server_ip
 
   install_system_packages
+  install_docker
   install_go
   install_sops
   build_and_install_sidekick
