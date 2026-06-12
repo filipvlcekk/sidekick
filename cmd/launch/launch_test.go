@@ -43,7 +43,7 @@ func TestShouldValidateTLSRequiresSuccessfulLaunch(t *testing.T) {
 	}
 }
 
-func TestBuildDockerServiceOmitsPerAppCertresolverInWildcardMode(t *testing.T) {
+func TestBuildDockerServiceIncludesPerAppCertresolverInWildcardMode(t *testing.T) {
 	service, err := buildDockerService(
 		utils.SidekickServer{
 			CertificateMode: utils.CertificateModeWildcard,
@@ -58,7 +58,7 @@ func TestBuildDockerServiceOmitsPerAppCertresolverInWildcardMode(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Contains(t, service.Labels, "traefik.http.routers.uptimekuma.tls=true")
-	assert.NotContains(t, service.Labels, "traefik.http.routers.uptimekuma.tls.certresolver=default")
+	assert.Contains(t, service.Labels, "traefik.http.routers.uptimekuma.tls.certresolver=default")
 }
 
 func TestBuildDockerServiceRejectsOutOfZoneWildcardDomain(t *testing.T) {

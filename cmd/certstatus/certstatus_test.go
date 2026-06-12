@@ -52,3 +52,30 @@ time=3 msg="error renewing app.example.com"
 	assert.Equal(t, `time=3 msg="error renewing app.example.com"`, filterLogsForDomain(logs, "app.example.com"))
 	assert.Equal(t, "", filterLogsForDomain(logs, "worker.example.com"))
 }
+
+func TestReadFirstLineOrEmptyReturnsEmptyForNilChannel(t *testing.T) {
+	assert.Equal(t, "", readFirstLineOrEmpty(nil))
+}
+
+func TestReadFirstLineOrEmptyReturnsEmptyWhenChannelClosesWithoutData(t *testing.T) {
+	out := make(chan string)
+	close(out)
+
+	assert.Equal(t, "", readFirstLineOrEmpty(out))
+}
+
+func TestReadFirstLineOrEmptyReturnsLineWhenPresent(t *testing.T) {
+	out := make(chan string, 1)
+	out <- "kara.saola.cz"
+	close(out)
+
+	assert.Equal(t, "kara.saola.cz", readFirstLineOrEmpty(out))
+}
+
+func TestReadCommandOutputJoinsAvailableLines(t *testing.T) {
+	out := make(chan string, 2)
+	out <- "line1"
+	out <- "line2"
+
+	assert.Equal(t, "line1\nline2", readCommandOutput(out))
+}

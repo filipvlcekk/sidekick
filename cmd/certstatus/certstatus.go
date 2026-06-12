@@ -57,14 +57,14 @@ var CertStatusCmd = &cobra.Command{
 		outChan, _, err := utils.RunCommand(client, "cd traefik && sudo docker compose -p sidekick logs traefik-service 2>&1 | grep -i 'acme\\|certificate\\|error' | tail -20")
 		var acmeLogs string
 		if err == nil {
-			acmeLogs = <-outChan
+			acmeLogs = readCommandOutput(outChan)
 		}
 
 		// Check acme.json for per-domain cert entries
 		outChan, _, err = utils.RunCommand(client, `cat traefik/ssl-certs/acme.json 2>/dev/null || echo "{}"`)
 		var acmeJSON string
 		if err == nil {
-			acmeJSON = <-outChan
+			acmeJSON = readCommandOutput(outChan)
 		}
 
 		// List deployed apps (containers with traefik labels)
@@ -72,7 +72,7 @@ var CertStatusCmd = &cobra.Command{
 		if err != nil {
 			log.Fatalf("Failed to list apps: %s", err)
 		}
-		appsOutput := <-outChan
+		appsOutput := readCommandOutput(outChan)
 		apps := strings.Split(strings.TrimSpace(appsOutput), "\n")
 
 		if len(apps) == 0 || (len(apps) == 1 && apps[0] == "") {
@@ -91,7 +91,7 @@ var CertStatusCmd = &cobra.Command{
 				fmt.Printf("%s\n  ✗ Could not determine domain\n\n", app)
 				continue
 			}
-			domain := strings.TrimSpace(<-outChan)
+			domain := strings.TrimSpace(readFirstLineOrEmpty(outChan))
 			if domain == "" {
 				fmt.Printf("%s\n  ✗ Could not determine domain\n\n", app)
 				continue
@@ -149,6 +149,46 @@ type certificateCoverageStatus struct {
 	UsesWildcard     bool
 	DomainWithinZone bool
 	ACMEEntryFound   bool
+}
+
+const commandOutputIdleTimeout = 50 * time.Millisecond
+
+func readCommandOutput(outChan <-chan string) string {
+	if outChan == nil {
+		return ""
+	}
+
+	lines := []string{}
+	timer := time.NewTimer(commandOutputIdleTimeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case line, ok := <-outChan:
+			if !ok {
+				return strings.Join(lines, "\n")
+			}
+			lines = append(lines, line)
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(commandOutputIdleTimeout)
+		case <-timer.C:
+			return strings.Join(lines, "\n")
+		}
+	}
+}
+
+func readFirstLineOrEmpty(outChan <-chan string) string {
+	output := readCommandOutput(outChan)
+	if output == "" {
+		return ""
+	}
+
+	return strings.SplitN(output, "\n", 2)[0]
 }
 
 func filterLogsForDomain(logs, domain string) string {

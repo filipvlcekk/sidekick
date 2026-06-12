@@ -27,7 +27,7 @@ func TestBuildDockerComposeFileUsesAppConfigPortAndDomain(t *testing.T) {
 	assert.Equal(t, []string{"sidekick"}, service.Networks)
 }
 
-func TestBuildDockerComposeFileOmitsPerAppCertresolverInWildcardMode(t *testing.T) {
+func TestBuildDockerComposeFileIncludesPerAppCertresolverInWildcardMode(t *testing.T) {
 	appConfig := utils.SidekickAppConfig{
 		Name: "uptimekuma",
 		Url:  "uptimekuma.saola.cz",
@@ -42,7 +42,7 @@ func TestBuildDockerComposeFileOmitsPerAppCertresolverInWildcardMode(t *testing.
 
 	service := compose.Services["uptimekuma"]
 	assert.Contains(t, service.Labels, "traefik.http.routers.uptimekuma.tls=true")
-	assert.NotContains(t, service.Labels, "traefik.http.routers.uptimekuma.tls.certresolver=default")
+	assert.Contains(t, service.Labels, "traefik.http.routers.uptimekuma.tls.certresolver=default")
 }
 
 func TestBuildDockerComposeFileRejectsOutOfZoneWildcardDomain(t *testing.T) {

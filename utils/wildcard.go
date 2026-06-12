@@ -115,13 +115,8 @@ func BuildAppTraefikLabels(serviceName, domain string, port uint64, server Sidek
 		fmt.Sprintf("traefik.http.routers.%s.rule=Host(`%s`)", serviceName, domain),
 		fmt.Sprintf("traefik.http.services.%s.loadbalancer.server.port=%s", serviceName, strconv.FormatUint(port, 10)),
 		fmt.Sprintf("traefik.http.routers.%s.tls=true", serviceName),
+		fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=default", serviceName),
 		"traefik.docker.network=sidekick",
-	}
-
-	normalizedServer := server
-	NormalizeSidekickServer(&normalizedServer)
-	if normalizedServer.CertificateMode != CertificateModeWildcard {
-		labels = append(labels, fmt.Sprintf("traefik.http.routers.%s.tls.certresolver=default", serviceName))
 	}
 
 	return labels, nil
