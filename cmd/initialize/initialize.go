@@ -48,9 +48,12 @@ func stage1LocalReqs() error {
 	return nil
 }
 
+func candidateLoginUsers() []string {
+	return []string{"root", "sidekick", "admin"}
+}
+
 func stage2Login(server string) (*ssh.Client, string, error) {
-	users := []string{"root", "sidekick"}
-	for _, user := range users {
+	for _, user := range candidateLoginUsers() {
 		client, err := utils.Login(server, user)
 		if err == nil {
 			return client, user, nil

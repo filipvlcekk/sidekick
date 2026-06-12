@@ -75,6 +75,10 @@ func TestDefaultInteractiveCertificateMode(t *testing.T) {
 	assert.Equal(t, utils.CertificateModeWildcard, defaultInteractiveCertificateMode(utils.CertificateModeWildcard))
 }
 
+func TestCandidateLoginUsers(t *testing.T) {
+	assert.Equal(t, []string{"root", "sidekick", "admin"}, candidateLoginUsers())
+}
+
 func TestShouldRewriteTraefikForCertificateMode(t *testing.T) {
 	tests := []struct {
 		name                    string
