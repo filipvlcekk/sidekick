@@ -9,7 +9,7 @@ import (
 )
 
 func TestTraefikComposeUsesCanonicalACMEDir(t *testing.T) {
-	assert.Contains(t, TraefikDockerComposeFile, "./traefik/ssl-certs/:/ssl-certs/")
+	assert.Contains(t, TraefikDockerComposeFile, "./ssl-certs/:/ssl-certs/")
 }
 
 func TestTraefikStageCreatesCanonicalACMEDir(t *testing.T) {
@@ -39,7 +39,7 @@ func TestBuildTraefikConfigIncludesDNS01ProviderAndCanonicalStorage(t *testing.T
 	compose := string(composeBytes)
 	assert.Contains(t, compose, "--certificatesresolvers.default.acme.storage=/ssl-certs/acme.json")
 	assert.Contains(t, compose, "--certificatesresolvers.default.acme.dnschallenge.provider=cloudflare")
-	assert.True(t, strings.Contains(compose, "./traefik/ssl-certs/:/ssl-certs/"))
+	assert.True(t, strings.Contains(compose, "./ssl-certs/:/ssl-certs/"))
 }
 
 func TestBuildTraefikConfigWildcardModeAddsStaticTLSDomains(t *testing.T) {

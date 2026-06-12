@@ -205,7 +205,7 @@ TLS_DOMAINS_FLAGS
       - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./traefik/ssl-certs/:/ssl-certs/
+      - ./ssl-certs/:/ssl-certs/
     networks:
       - sidekick
 
