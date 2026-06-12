@@ -48,4 +48,20 @@ if [[ "${plugin_url}" != "${expected_plugin_url}" ]]; then
   exit 1
 fi
 
+flags="$(extract_lsattr_flags '----ia--------e------- /home/admin/.ssh/authorized_keys')"
+if [[ "${flags}" != "----ia--------e-------" ]]; then
+  echo "extract_lsattr_flags produced unexpected flags: ${flags}"
+  exit 1
+fi
+
+if ! path_has_restrictive_attr_flags "${flags}"; then
+  echo "path_has_restrictive_attr_flags should detect immutable or append-only flags"
+  exit 1
+fi
+
+if path_has_restrictive_attr_flags "----------------------"; then
+  echo "path_has_restrictive_attr_flags incorrectly reported restrictive flags"
+  exit 1
+fi
+
 echo "bootstrap-sidekick-vps smoke test passed"

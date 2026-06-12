@@ -20,6 +20,40 @@ log_section() {
   echo "==> $1"
 }
 
+extract_lsattr_flags() {
+  local output="$1"
+  printf '%s' "${output%% *}"
+}
+
+path_has_restrictive_attr_flags() {
+  local flags="$1"
+  [[ "${flags}" == *i* || "${flags}" == *a* ]]
+}
+
+unlock_ssh_path_attrs_if_needed() {
+  local path="$1"
+
+  if [[ ! -e "${path}" ]]; then
+    return
+  fi
+
+  if ! command -v lsattr >/dev/null 2>&1 || ! command -v chattr >/dev/null 2>&1; then
+    return
+  fi
+
+  local output flags
+  output="$(sudo lsattr -d "${path}" 2>/dev/null | head -n1 || true)"
+  if [[ -z "${output}" ]]; then
+    return
+  fi
+
+  flags="$(extract_lsattr_flags "${output}")"
+  if path_has_restrictive_attr_flags "${flags}"; then
+    echo "Warning: removing immutable/append-only flags from ${path} for SSH bootstrap"
+    sudo chattr -i -a "${path}" 2>/dev/null || true
+  fi
+}
+
 docker_apt_repo_line() {
   local arch codename
   arch="${DOCKER_APT_ARCH:-}"
@@ -181,17 +215,27 @@ prepare_sidekick_config() {
 
 ensure_local_ssh_key() {
   log_section "Ensuring local SSH key exists"
-  mkdir -p "${HOME}/.ssh"
-  chmod 700 "${HOME}/.ssh"
+  local current_group
+  current_group="$(id -gn)"
+
+  sudo install -d -m 700 -o "${USER}" -g "${current_group}" "${HOME}/.ssh"
+  unlock_ssh_path_attrs_if_needed "${HOME}/.ssh"
+  unlock_ssh_path_attrs_if_needed "${HOME}/.ssh/authorized_keys"
 
   if [[ ! -f "${HOME}/.ssh/id_ed25519" ]]; then
     ssh-keygen -t ed25519 -N "" -f "${HOME}/.ssh/id_ed25519"
   fi
 
+  if [[ ! -e "${HOME}/.ssh/authorized_keys" ]]; then
+    sudo install -m 600 -o "${USER}" -g "${current_group}" /dev/null "${HOME}/.ssh/authorized_keys"
+  else
+    sudo chown "${USER}:${current_group}" "${HOME}/.ssh/authorized_keys"
+    sudo chmod 600 "${HOME}/.ssh/authorized_keys"
+  fi
+
   local public_key
   public_key="$(cat "${HOME}/.ssh/id_ed25519.pub")"
   append_if_missing "${public_key}" "${HOME}/.ssh/authorized_keys"
-  chmod 600 "${HOME}/.ssh/authorized_keys"
 }
 
 ensure_known_host() {
@@ -213,11 +257,10 @@ ensure_sidekick_user() {
 
   echo "sidekick ALL=(ALL) NOPASSWD: ALL" | sudo tee /etc/sudoers.d/sidekick >/dev/null
 
-  sudo mkdir -p /home/sidekick/.ssh
-  sudo cp "${HOME}/.ssh/authorized_keys" /home/sidekick/.ssh/authorized_keys
-  sudo chown -R sidekick:sidekick /home/sidekick/.ssh
-  sudo chmod 700 /home/sidekick/.ssh
-  sudo chmod 600 /home/sidekick/.ssh/authorized_keys
+  sudo install -d -m 700 -o sidekick -g sidekick /home/sidekick/.ssh
+  unlock_ssh_path_attrs_if_needed "/home/sidekick/.ssh"
+  unlock_ssh_path_attrs_if_needed "/home/sidekick/.ssh/authorized_keys"
+  sudo install -m 600 -o sidekick -g sidekick "${HOME}/.ssh/authorized_keys" /home/sidekick/.ssh/authorized_keys
   sudo usermod -aG docker sidekick || true
 }
 
